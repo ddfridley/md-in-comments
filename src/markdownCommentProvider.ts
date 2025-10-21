@@ -87,19 +87,20 @@ export class MarkdownCommentProvider {
         this.decorationTypes.set('code', vscode.window.createTextEditorDecorationType({}));
         this.decorationTypes.set('strikethrough', vscode.window.createTextEditorDecorationType({}));
         
-        // Header decorations with actual styling - dark gray tones
+        // Header decorations with actual styling - darkest to lighter gray tones
         this.decorationTypes.set('header1', vscode.window.createTextEditorDecorationType({
-            color: '#505050',
+            color: '#303030',  // Darkest gray
             fontWeight: 'bold',
             textDecoration: 'underline'
         }));
         this.decorationTypes.set('header2', vscode.window.createTextEditorDecorationType({
-            color: '#606060',
+            color: '#505050',  // Dark gray
             fontWeight: 'bold'
         }));
         this.decorationTypes.set('header3', vscode.window.createTextEditorDecorationType({
-            color: '#707070',
-            fontWeight: 'bold'
+            color: '#888888',  // Lighter gray
+            fontWeight: 'bold',
+            fontStyle: 'italic'
         }));
 
         // Gray color for comment block content
@@ -543,7 +544,8 @@ export class MarkdownCommentProvider {
                             before: {
                                 contentText: content,
                                 fontWeight: decorationType === 'bold' ? 'bold' : undefined,
-                                fontStyle: decorationType === 'italic' ? 'italic' : undefined,
+                                fontStyle: decorationType === 'italic' ? 'italic' : 
+                                           decorationType === 'header3' ? 'italic' : undefined,
                                 textDecoration: decorationType === 'strikethrough' ? 'line-through' : 
                                               decorationType === 'header1' ? 'underline' : undefined,
                                 color: decorationType === 'code' ? '#808080' : 
