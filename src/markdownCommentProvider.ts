@@ -1,5 +1,57 @@
 import * as vscode from 'vscode';
 
+/**
+ * MarkdownCommentProvider - Renders markdown formatting within code comments
+ * 
+ * HOW THE RENDERING WORKS:
+ * 
+ * 1. COMMENT EXTRACTION:
+ *    - Scans document for multi-line comment blocks only (Java/C-style '/ * ... * /' and Python triple-quote)
+ *    - Extracts clean comment text by removing comment markers
+ *    - Preserves original document positions for accurate decoration placement
+ * 
+ * 2. MARKDOWN PARSING:
+ *    - Uses regex patterns to find markdown syntax for bold, italic, code, strikethrough, headers
+ *    - Captures both the syntax characters and the content they wrap
+ *    - Maps positions from cleaned comment text back to original document coordinates
+ * 
+ * 3. TEXT REPLACEMENT RENDERING:
+ *    - Uses VS Code's decoration API with two-layer approach:
+ *      a) HIDE ORIGINAL: Applies 'replace' decoration with transparent color and minimal font size
+ *                        to make original markdown syntax invisible
+ *      b) SHOW FORMATTED: Uses 'before' content property to insert styled text at the same position
+ *                         with proper formatting (bold, italic, background, borders, etc.)
+ * 
+ * 4. VISUAL RESULT:
+ *    - Original text: "This is **bold** and \`code\`"
+ *    - Rendered as: "This is bold and code" (where "bold" appears bold, "code" has background/border)
+ *    - Markdown syntax characters become invisible but preserve document layout
+ *    - Formatted content appears in exact same position with applied styling
+ * 
+ * 5. DECORATION TYPES:
+ *    - 'replace': Makes original markdown text transparent and tiny
+ *    - 'bold', 'italic', etc.: Placeholder types that trigger the before content rendering
+ *    - All actual styling is applied via renderOptions.before properties
+ * 
+ * SUPPORTED MARKDOWN:
+ * - **bold text**
+ * - *italic text*
+ * - \`inline code\`
+ * - ~~strikethrough~~
+ * - # Header 1 (bold, underlined, colored)
+ * - ## Header 2 (bold, colored)
+ * - ### Header 3 (bold, colored)
+ * 
+ * SUPPORTED COMMENT TYPES (BLOCK ONLY):
+ * - Multi-line: \/\* comment \*\/ (JavaScript, TypeScript, Java, C#, C/C++, Go, Rust, PHP)
+ * - Multi-line: triple-quote comment (Python)
+ * 
+ * LIMITATIONS:
+ * - Cannot truly remove text from document (VS Code API limitation)
+ * - Complex nested markdown may not render perfectly
+ * - Performance impact on very large files with many comments
+ */
+
 export class MarkdownCommentProvider {
     private decorationTypes: Map<string, vscode.TextEditorDecorationType> = new Map();
     private _isEnabled: boolean = true;
@@ -31,9 +83,21 @@ export class MarkdownCommentProvider {
         this.decorationTypes.set('italic', vscode.window.createTextEditorDecorationType({}));
         this.decorationTypes.set('code', vscode.window.createTextEditorDecorationType({}));
         this.decorationTypes.set('strikethrough', vscode.window.createTextEditorDecorationType({}));
-        this.decorationTypes.set('header1', vscode.window.createTextEditorDecorationType({}));
-        this.decorationTypes.set('header2', vscode.window.createTextEditorDecorationType({}));
-        this.decorationTypes.set('header3', vscode.window.createTextEditorDecorationType({}));
+        
+        // Header decorations with actual styling
+        this.decorationTypes.set('header1', vscode.window.createTextEditorDecorationType({
+            color: 'var(--vscode-textPreformat-foreground)',
+            fontWeight: 'bold',
+            textDecoration: 'underline'
+        }));
+        this.decorationTypes.set('header2', vscode.window.createTextEditorDecorationType({
+            color: 'var(--vscode-textPreformat-foreground)',
+            fontWeight: 'bold'
+        }));
+        this.decorationTypes.set('header3', vscode.window.createTextEditorDecorationType({
+            color: 'var(--vscode-textPreformat-foreground)',
+            fontWeight: 'bold'
+        }));
 
         // Replacement decoration that makes original text take no space
         this.decorationTypes.set('replace', vscode.window.createTextEditorDecorationType({
@@ -183,19 +247,19 @@ export class MarkdownCommentProvider {
             case 'rust':
             case 'php':
                 return {
-                    singleLine: [/^\s*\/\/\s*(.*)$/],
+                    singleLine: [/^\s*\/\/\s*(.*)$/m],
                     multiLineStart: [/^\s*\/\*/],
                     multiLineEnd: [/\*\//]
                 };
             case 'python':
                 return {
-                    singleLine: [/^\s*#\s*(.*)$/],
+                    singleLine: [/^\s*#\s*(.*)$/m],
                     multiLineStart: [/^\s*"""/],
                     multiLineEnd: [/"""/]
                 };
             default:
                 return {
-                    singleLine: [/^\s*\/\/\s*(.*)$/, /^\s*#\s*(.*)$/],
+                    singleLine: [/^\s*\/\/\s*(.*)$/m, /^\s*#\s*(.*)$/m],
                     multiLineStart: [/^\s*\/\*/],
                     multiLineEnd: [/\*\//]
                 };
@@ -210,13 +274,14 @@ export class MarkdownCommentProvider {
         const text = comment.text;
         
         // Parse markdown patterns and replace with formatted content
+        // Process ALL inline formatting FIRST, before any headers
         this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document);
         this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document);
         this.parseAndReplace(text, /`([^`]*)`/g, 'code', comment, decorations, document);
         this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document);
-        this.parseAndReplace(text, /### (.*$)/gm, 'header3', comment, decorations, document);
-        this.parseAndReplace(text, /## (.*$)/gm, 'header2', comment, decorations, document);
-        this.parseAndReplace(text, /# (.*$)/gm, 'header1', comment, decorations, document);
+        
+        // Process headers LAST (this will only hide ## markers and add header styling)
+        this.parseHeadersWithNestedFormatting(text, comment, decorations, document);
     }
 
 
@@ -231,6 +296,9 @@ export class MarkdownCommentProvider {
     ): void {
         let match;
         const decorationList = decorations.get(decorationType) || [];
+        
+        // Reset regex lastIndex to ensure we start from the beginning
+        pattern.lastIndex = 0;
 
         while ((match = pattern.exec(text)) !== null) {
             if (match[1] !== undefined) {
@@ -279,6 +347,68 @@ export class MarkdownCommentProvider {
         decorations.set(decorationType, decorationList);
     }
 
+    private parseHeadersWithNestedFormatting(
+        text: string,
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument
+    ): void {
+        // Process different header levels - use negative lookahead to prevent overlaps
+        this.parseHeaderLevel(text, /^### (.*$)/gm, 'header3', comment, decorations, document);
+        this.parseHeaderLevel(text, /^##(?!#) (.*$)/gm, 'header2', comment, decorations, document);
+        this.parseHeaderLevel(text, /^#(?!#) (.*$)/gm, 'header1', comment, decorations, document);
+    }
+
+    private parseHeaderLevel(
+        text: string,
+        pattern: RegExp,
+        decorationType: string,
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument
+    ): void {
+        let match;
+
+        while ((match = pattern.exec(text)) !== null) {
+            if (match[1] !== undefined) {
+                const headerContent = match[1];
+                const fullMatch = match[0];
+                const headerMarkersLength = fullMatch.length - headerContent.length;
+                
+                // Position for just the header markers (### or ##)
+                const markersStart = match.index;
+                const markersEnd = markersStart + headerMarkersLength;
+                const markersPosition = this.getDocumentPosition(markersStart, markersEnd, comment, document, text);
+                
+                if (markersPosition) {
+                    // Hide only the header markers, not the content
+                    const replaceList = decorations.get('replace') || [];
+                    replaceList.push({
+                        range: new vscode.Range(markersPosition.start, markersPosition.end)
+                    });
+                    decorations.set('replace', replaceList);
+                }
+                
+                // Apply header color to the content area without hiding existing formatting
+                const contentStart = markersEnd;
+                const contentEnd = match.index + fullMatch.length;
+                const contentPosition = this.getDocumentPosition(contentStart, contentEnd, comment, document, text);
+                
+                if (contentPosition) {
+                    // Create a decoration that applies header styling without replacing content
+                    const decorationList = decorations.get(decorationType) || [];
+                    const decorationOptions: vscode.DecorationOptions = {
+                        range: new vscode.Range(contentPosition.start, contentPosition.end),
+                        hoverMessage: new vscode.MarkdownString(`Markdown: ${decorationType}`)
+                    };
+                    
+                    decorationList.push(decorationOptions);
+                    decorations.set(decorationType, decorationList);
+                }
+            }
+        }
+    }
+
 
 
     private getDocumentPosition(
@@ -288,7 +418,7 @@ export class MarkdownCommentProvider {
         document: vscode.TextDocument,
         commentText: string
     ): { start: vscode.Position; end: vscode.Position } | null {
-        // Simple approach: directly find the text in the document
+        // Get the search text from the cleaned comment
         const searchText = commentText.substring(matchStart, matchEnd);
         
         // Get the document text for the comment block
@@ -297,8 +427,28 @@ export class MarkdownCommentProvider {
         let searchRange = new vscode.Range(documentSearchStart, documentSearchEnd);
         let documentText = document.getText(searchRange);
         
-        // Find the search text in the document
-        const searchIndex = documentText.indexOf(searchText);
+        // Find all occurrences of the search text
+        let searchIndex = -1;
+        let currentIndex = 0;
+        let occurrenceCount = 0;
+        
+        // Count which occurrence this is in the comment text
+        const occurrenceInComment = (commentText.substring(0, matchStart).match(new RegExp(this.escapeRegExp(searchText), 'g')) || []).length;
+        
+        // Find the nth occurrence in the document text
+        while (occurrenceCount <= occurrenceInComment && currentIndex < documentText.length) {
+            const foundIndex = documentText.indexOf(searchText, currentIndex);
+            if (foundIndex === -1) {
+                break;
+            }
+            if (occurrenceCount === occurrenceInComment) {
+                searchIndex = foundIndex;
+                break;
+            }
+            occurrenceCount++;
+            currentIndex = foundIndex + 1;
+        }
+        
         if (searchIndex === -1) {
             return null;
         }
@@ -321,6 +471,10 @@ export class MarkdownCommentProvider {
             start: new vscode.Position(resultStartLine, resultStartChar),
             end: new vscode.Position(resultEndLine, resultEndChar)
         };
+    }
+
+    private escapeRegExp(string: string): string {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
     private clearAllDecorations(): void {

@@ -7,10 +7,11 @@
 # Multi-line Header
 This is **bold** in a multi-line comment
 Testing *italic* and `code` here too
+## Header with **bold** text in the line
 */
 
 function testFunction() {
     // ## Another header with **bold** text
     // Regular comment with *emphasis*
-    console.log("Testing markdown in comments");
+    console.log("Testing markdown in comments");  // this is **bold** in a comment after a line of code
 }
