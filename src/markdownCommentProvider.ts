@@ -389,20 +389,17 @@ export class MarkdownCommentProvider {
                     decorations.set('replace', replaceList);
                 }
                 
-                // Apply header color to the content area without hiding existing formatting
+                // Apply header color styling to content without replacing bold/italic formatting
                 const contentStart = markersEnd;
                 const contentEnd = match.index + fullMatch.length;
                 const contentPosition = this.getDocumentPosition(contentStart, contentEnd, comment, document, text);
                 
                 if (contentPosition) {
-                    // Create a decoration that applies header styling without replacing content
                     const decorationList = decorations.get(decorationType) || [];
-                    const decorationOptions: vscode.DecorationOptions = {
+                    decorationList.push({
                         range: new vscode.Range(contentPosition.start, contentPosition.end),
                         hoverMessage: new vscode.MarkdownString(`Markdown: ${decorationType}`)
-                    };
-                    
-                    decorationList.push(decorationOptions);
+                    });
                     decorations.set(decorationType, decorationList);
                 }
             }
