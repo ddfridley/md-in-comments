@@ -5,6 +5,8 @@
 
 /* 
 # Multi-line Header
+## Header Level 2
+### Header Level 3
 This is **bold** in a multi-line comment
 Testing *italic* and `code` here too
 ## Header with **bold** text in the line
