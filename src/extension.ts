@@ -18,22 +18,32 @@ export function activate(context: vscode.ExtensionContext) {
 	const supportedLanguages = ['typescript', 'javascript', 'python', 'java', 'csharp', 'cpp', 'c', 'go', 'rust', 'php'];
 	
 	// Register text document change listeners for supported languages
+	// Only update when switching files or opening new files
 	supportedLanguages.forEach(language => {
-		const disposable = vscode.workspace.onDidChangeTextDocument((event) => {
-			if (event.document.languageId === language) {
-				markdownProvider.updateDecorations(event.document);
+		const disposable = vscode.workspace.onDidOpenTextDocument((document) => {
+			if (document.languageId === language) {
+				markdownProvider.updateDecorations(document);
 			}
 		});
 		context.subscriptions.push(disposable);
 	});
 
-	// Register for active editor changes
+	// Register for active editor changes to apply decorations
 	const activeEditorDisposable = vscode.window.onDidChangeActiveTextEditor((editor) => {
 		if (editor && supportedLanguages.includes(editor.document.languageId)) {
-			markdownProvider.updateDecorations(editor.document);
+			markdownProvider.forceUpdate(editor.document);
 		}
 	});
 	context.subscriptions.push(activeEditorDisposable);
+
+	// Register for cursor position changes to show raw text on active line
+	const cursorDisposable = vscode.window.onDidChangeTextEditorSelection((event) => {
+		if (supportedLanguages.includes(event.textEditor.document.languageId)) {
+			// Update decorations with current active line
+			markdownProvider.updateDecorations(event.textEditor.document);
+		}
+	});
+	context.subscriptions.push(cursorDisposable);
 
 	// Initialize decorations for the current active editor
 	if (vscode.window.activeTextEditor) {

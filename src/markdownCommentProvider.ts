@@ -55,6 +55,9 @@ import * as vscode from 'vscode';
 export class MarkdownCommentProvider {
     private decorationTypes: Map<string, vscode.TextEditorDecorationType> = new Map();
     private _isEnabled: boolean = true;
+    private updateTimeout: NodeJS.Timeout | undefined;
+    private readonly debounceDelay = 300; // milliseconds
+    private lastActiveLine: number = -1;
 
     constructor() {
         this.initializeDecorationTypes();
@@ -84,19 +87,24 @@ export class MarkdownCommentProvider {
         this.decorationTypes.set('code', vscode.window.createTextEditorDecorationType({}));
         this.decorationTypes.set('strikethrough', vscode.window.createTextEditorDecorationType({}));
         
-        // Header decorations with actual styling
+        // Header decorations with actual styling - dark gray tones
         this.decorationTypes.set('header1', vscode.window.createTextEditorDecorationType({
-            color: 'var(--vscode-textPreformat-foreground)',
+            color: '#505050',
             fontWeight: 'bold',
             textDecoration: 'underline'
         }));
         this.decorationTypes.set('header2', vscode.window.createTextEditorDecorationType({
-            color: 'var(--vscode-textPreformat-foreground)',
+            color: '#606060',
             fontWeight: 'bold'
         }));
         this.decorationTypes.set('header3', vscode.window.createTextEditorDecorationType({
-            color: 'var(--vscode-textPreformat-foreground)',
+            color: '#707070',
             fontWeight: 'bold'
+        }));
+
+        // Gray color for comment block content
+        this.decorationTypes.set('commentGray', vscode.window.createTextEditorDecorationType({
+            color: '#808080'
         }));
 
         // Replacement decoration that makes original text take no space
@@ -116,6 +124,17 @@ export class MarkdownCommentProvider {
             return;
         }
 
+        // Get the current cursor line
+        const activeLine = editor.selection.active.line;
+        
+        // Check if we're still on the same line - if so, don't update
+        if (activeLine === this.lastActiveLine) {
+            return;
+        }
+        
+        // Update the last active line
+        this.lastActiveLine = activeLine;
+
         // Clear existing decorations
         this.decorationTypes.forEach(decorationType => {
             editor.setDecorations(decorationType, []);
@@ -130,7 +149,7 @@ export class MarkdownCommentProvider {
         });
 
         comments.forEach(comment => {
-            this.parseMarkdownInComment(comment, decorations, document);
+            this.parseMarkdownInComment(comment, decorations, document, activeLine);
         });
 
         // Apply decorations
@@ -140,6 +159,25 @@ export class MarkdownCommentProvider {
                 editor.setDecorations(decorationType, ranges);
             }
         });
+    }
+
+    public updateDecorationsDebounced(document: vscode.TextDocument): void {
+        // Clear existing timeout
+        if (this.updateTimeout) {
+            clearTimeout(this.updateTimeout);
+        }
+
+        // Set new timeout
+        this.updateTimeout = setTimeout(() => {
+            this.updateDecorations(document);
+        }, this.debounceDelay);
+    }
+
+    public forceUpdate(document: vscode.TextDocument): void {
+        console.log('forceUpdate called');
+        // Reset the last active line to force a re-render
+        this.lastActiveLine = -1;
+        this.updateDecorations(document);
     }
 
     private extractComments(text: string, languageId: string): CommentBlock[] {
@@ -212,13 +250,15 @@ export class MarkdownCommentProvider {
                     originalLines.push(line);
                     // Add content before end marker, removing * prefix if present
                     const beforeEnd = line.substring(0, endMatch.index || 0);
-                    const cleaned = beforeEnd.replace(/^\s*\*\s?/, '');
+                    const cleaned = beforeEnd.replace(/^\s*\*\s/, '');
                     cleanedLines.push(cleaned);
                     break;
                 } else {
                     // Middle line - store original and clean it
                     originalLines.push(line);
-                    const cleaned = line.replace(/^\s*\*\s?/, '');
+                    // Only remove leading "* " (asterisk + space) which is a comment decorator
+                    // This preserves ** for markdown bold
+                    const cleaned = line.replace(/^\s*\*\s/, '');
                     cleanedLines.push(cleaned);
                 }
             }
@@ -269,19 +309,192 @@ export class MarkdownCommentProvider {
     private parseMarkdownInComment(
         comment: CommentBlock, 
         decorations: Map<string, vscode.DecorationOptions[]>,
-        document: vscode.TextDocument
+        document: vscode.TextDocument,
+        activeLine: number
     ): void {
         const text = comment.text;
         
+        // Apply gray color to entire comment block
+        const grayList = decorations.get('commentGray') || [];
+        grayList.push({
+            range: new vscode.Range(
+                new vscode.Position(comment.startLine, 0),
+                new vscode.Position(comment.endLine, document.lineAt(comment.endLine).text.length)
+            )
+        });
+        decorations.set('commentGray', grayList);
+        
+        // Replace comment block delimiters with horizontal lines
+        this.replaceCommentDelimiters(comment, decorations, document);
+        
         // Parse markdown patterns and replace with formatted content
-        // Process ALL inline formatting FIRST, before any headers
-        this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document);
-        this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document);
-        this.parseAndReplace(text, /`([^`]*)`/g, 'code', comment, decorations, document);
-        this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document);
+        // Process ALL inline formatting FIRST, before any headers or lists
+        this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine);
+        this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine);
+        this.parseAndReplace(text, /`([^`]*)`/g, 'code', comment, decorations, document, activeLine);
+        this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine);
+        
+        // Process lists (bullets and numbered)
+        this.parseLists(text, comment, decorations, document, activeLine);
         
         // Process headers LAST (this will only hide ## markers and add header styling)
-        this.parseHeadersWithNestedFormatting(text, comment, decorations, document);
+        this.parseHeadersWithNestedFormatting(text, comment, decorations, document, activeLine);
+    }
+
+    private replaceCommentDelimiters(
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument
+    ): void {
+        // Only process multi-line comments with original lines
+        if (!comment.originalLines || comment.originalLines.length < 2) {
+            return;
+        }
+
+        const replaceList = decorations.get('replace') || [];
+        
+        // Replace opening /* on first line
+        const firstLine = comment.originalLines[0];
+        const openMatch = firstLine.match(/\/\*/);
+        if (openMatch && openMatch.index !== undefined) {
+            const startPos = new vscode.Position(comment.startLine, openMatch.index);
+            const endPos = new vscode.Position(comment.startLine, openMatch.index + 2);
+            
+            // Hide the /*
+            replaceList.push({
+                range: new vscode.Range(startPos, endPos)
+            });
+            
+            // Add horizontal line
+            decorations.get('bold')?.push({
+                range: new vscode.Range(startPos, startPos),
+                renderOptions: {
+                    before: {
+                        contentText: '━'.repeat(80),
+                        color: 'var(--vscode-textSeparator-foreground)'
+                    }
+                }
+            });
+        }
+        
+        // Replace closing */ on last line
+        const lastLine = comment.originalLines[comment.originalLines.length - 1];
+        const closeMatch = lastLine.match(/\*\//);
+        if (closeMatch && closeMatch.index !== undefined) {
+            const startPos = new vscode.Position(comment.endLine, closeMatch.index);
+            const endPos = new vscode.Position(comment.endLine, closeMatch.index + 2);
+            
+            // Hide the */
+            replaceList.push({
+                range: new vscode.Range(startPos, endPos)
+            });
+            
+            // Add horizontal line
+            decorations.get('bold')?.push({
+                range: new vscode.Range(startPos, startPos),
+                renderOptions: {
+                    before: {
+                        contentText: '━'.repeat(80),
+                        color: 'var(--vscode-textSeparator-foreground)'
+                    }
+                }
+            });
+        }
+        
+        decorations.set('replace', replaceList);
+    }
+
+    private parseLists(
+        text: string,
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number
+    ): void {
+        // Match unordered list items: - item or * item (but not ** for bold)
+        const bulletPattern = /^(\s*)[-*]\s+(.*)$/gm;
+        // Match ordered list items: 1. item, 2. item, etc.
+        const numberedPattern = /^(\s*)(\d+)\.\s+(.*)$/gm;
+        
+        let match;
+        const replaceList = decorations.get('replace') || [];
+        
+        // Process bullet points
+        bulletPattern.lastIndex = 0;
+        while ((match = bulletPattern.exec(text)) !== null) {
+            const indent = match[1] || '';
+            const content = match[2];
+            const markerStart = match.index + indent.length;
+            const markerEnd = markerStart + 2; // "- " or "* "
+            
+            // Get position for the bullet marker
+            const markerPosition = this.getDocumentPosition(markerStart, markerEnd, comment, document, text);
+            
+            if (markerPosition) {
+                // Skip decoration if it's on the active line
+                if (markerPosition.start.line === activeLine) {
+                    continue;
+                }
+                // Hide the original marker (- or *)
+                replaceList.push({
+                    range: new vscode.Range(markerPosition.start, markerPosition.end)
+                });
+                
+                // Replace with bullet character
+                const decorationList = decorations.get('bold') || [];
+                decorationList.push({
+                    range: new vscode.Range(markerPosition.start, markerPosition.start),
+                    renderOptions: {
+                        before: {
+                            contentText: '• ',
+                            color: '#808080'
+                        }
+                    }
+                });
+                decorations.set('bold', decorationList);
+            }
+        }
+        
+        // Process numbered lists
+        numberedPattern.lastIndex = 0;
+        while ((match = numberedPattern.exec(text)) !== null) {
+            const indent = match[1] || '';
+            const number = match[2];
+            const content = match[3];
+            const markerStart = match.index + indent.length;
+            const markerEnd = markerStart + number.length + 2; // "1. " or "2. " etc.
+            
+            // Get position for the number marker
+            const markerPosition = this.getDocumentPosition(markerStart, markerEnd, comment, document, text);
+            
+            if (markerPosition) {
+                // Skip decoration if it's on the active line
+                if (markerPosition.start.line === activeLine) {
+                    continue;
+                }
+                
+                // Hide the original marker (1. or 2. etc)
+                replaceList.push({
+                    range: new vscode.Range(markerPosition.start, markerPosition.end)
+                });
+                
+                // Replace with styled number
+                const decorationList = decorations.get('bold') || [];
+                decorationList.push({
+                    range: new vscode.Range(markerPosition.start, markerPosition.start),
+                    renderOptions: {
+                        before: {
+                            contentText: `${number}. `,
+                            color: '#808080',
+                            fontWeight: 'bold'
+                        }
+                    }
+                });
+                decorations.set('bold', decorationList);
+            }
+        }
+        
+        decorations.set('replace', replaceList);
     }
 
 
@@ -292,7 +505,8 @@ export class MarkdownCommentProvider {
         decorationType: string,
         comment: CommentBlock,
         decorations: Map<string, vscode.DecorationOptions[]>,
-        document: vscode.TextDocument
+        document: vscode.TextDocument,
+        activeLine: number
     ): void {
         let match;
         const decorationList = decorations.get(decorationType) || [];
@@ -311,6 +525,10 @@ export class MarkdownCommentProvider {
                 const position = this.getDocumentPosition(fullStart, fullEnd, comment, document, text);
                 
                 if (position) {
+                    // Skip decoration if it's on the active line
+                    if (position.start.line === activeLine || position.end.line === activeLine) {
+                        continue;
+                    }
                     // Add transparent decoration to hide original text
                     const replaceList = decorations.get('replace') || [];
                     replaceList.push({
@@ -328,7 +546,9 @@ export class MarkdownCommentProvider {
                                 fontStyle: decorationType === 'italic' ? 'italic' : undefined,
                                 textDecoration: decorationType === 'strikethrough' ? 'line-through' : 
                                               decorationType === 'header1' ? 'underline' : undefined,
-                                color: (decorationType === 'header1' || decorationType === 'header2' || decorationType === 'header3') ? 
+                                color: decorationType === 'code' ? '#808080' : 
+                                       (decorationType === 'bold' || decorationType === 'italic' || decorationType === 'strikethrough') ? '#808080' : 
+                                       (decorationType === 'header1' || decorationType === 'header2' || decorationType === 'header3') ? 
                                        'var(--vscode-textPreformat-foreground)' : undefined,
                                 backgroundColor: decorationType === 'code' ? 'var(--vscode-textCodeBlock-background)' : undefined,
                                 border: decorationType === 'code' ? '1px solid var(--vscode-textBlockQuote-border)' : undefined,
@@ -351,12 +571,13 @@ export class MarkdownCommentProvider {
         text: string,
         comment: CommentBlock,
         decorations: Map<string, vscode.DecorationOptions[]>,
-        document: vscode.TextDocument
+        document: vscode.TextDocument,
+        activeLine: number
     ): void {
         // Process different header levels - use negative lookahead to prevent overlaps
-        this.parseHeaderLevel(text, /^### (.*$)/gm, 'header3', comment, decorations, document);
-        this.parseHeaderLevel(text, /^##(?!#) (.*$)/gm, 'header2', comment, decorations, document);
-        this.parseHeaderLevel(text, /^#(?!#) (.*$)/gm, 'header1', comment, decorations, document);
+        this.parseHeaderLevel(text, /^### (.*$)/gm, 'header3', comment, decorations, document, activeLine);
+        this.parseHeaderLevel(text, /^##(?!#) (.*$)/gm, 'header2', comment, decorations, document, activeLine);
+        this.parseHeaderLevel(text, /^#(?!#) (.*$)/gm, 'header1', comment, decorations, document, activeLine);
     }
 
     private parseHeaderLevel(
@@ -365,7 +586,8 @@ export class MarkdownCommentProvider {
         decorationType: string,
         comment: CommentBlock,
         decorations: Map<string, vscode.DecorationOptions[]>,
-        document: vscode.TextDocument
+        document: vscode.TextDocument,
+        activeLine: number
     ): void {
         let match;
 
@@ -381,6 +603,10 @@ export class MarkdownCommentProvider {
                 const markersPosition = this.getDocumentPosition(markersStart, markersEnd, comment, document, text);
                 
                 if (markersPosition) {
+                    // Skip decoration if it's on the active line
+                    if (markersPosition.start.line === activeLine) {
+                        continue;
+                    }
                     // Hide only the header markers, not the content
                     const replaceList = decorations.get('replace') || [];
                     replaceList.push({
