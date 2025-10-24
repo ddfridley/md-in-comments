@@ -2,7 +2,7 @@
   "name": "md-in-comments",
   "displayName": "MD in Comments",
   "description": "Renders markdown formatting within comment blocks in code files",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.105.0"
   },
@@ -20,7 +20,8 @@
     "onLanguage:c",
     "onLanguage:go",
     "onLanguage:rust",
-    "onLanguage:php"
+    "onLanguage:php",
+    "onLanguage:markdown"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -41,7 +42,7 @@
         },
         "mdInComments.supportedLanguages": {
           "type": "array",
-          "default": ["typescript", "javascript", "python", "java", "csharp", "cpp", "c", "go", "rust", "php"],
+          "default": ["typescript", "javascript", "python", "java", "csharp", "cpp", "c", "go", "rust", "php", "markdown"],
           "description": "List of programming languages where markdown in comments should be rendered"
         }
       }

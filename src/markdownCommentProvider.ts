@@ -88,24 +88,25 @@ export class MarkdownCommentProvider {
         this.decorationTypes.set('strikethrough', vscode.window.createTextEditorDecorationType({}));
         
         // Header decorations with actual styling - darkest to lighter gray tones
+        // Base gray reduced by 20% (from #808080 to #666666)
         this.decorationTypes.set('header1', vscode.window.createTextEditorDecorationType({
-            color: '#303030',  // Darkest gray
+            color: '#1a1a1a',  // Darkest gray (was #303030, now much darker)
             fontWeight: 'bold',
             textDecoration: 'underline'
         }));
         this.decorationTypes.set('header2', vscode.window.createTextEditorDecorationType({
-            color: '#505050',  // Dark gray
+            color: '#333333',  // Dark gray (was #505050, now darker)
             fontWeight: 'bold'
         }));
         this.decorationTypes.set('header3', vscode.window.createTextEditorDecorationType({
-            color: '#888888',  // Lighter gray
+            color: '#666666',  // Medium gray (was #888888, now darker - this is base -20%)
             fontWeight: 'bold',
             fontStyle: 'italic'
         }));
 
-        // Gray color for comment block content
+        // Gray color for comment block content - 20% darker than before
         this.decorationTypes.set('commentGray', vscode.window.createTextEditorDecorationType({
-            color: '#808080'
+            color: '#666666'  // Was #808080, now 20% darker
         }));
 
         // Replacement decoration that makes original text take no space
@@ -117,28 +118,44 @@ export class MarkdownCommentProvider {
         // Syntax highlighting colors for code blocks
         // Darker colors that work better with light backgrounds
         this.decorationTypes.set('syntax-keyword', vscode.window.createTextEditorDecorationType({
-            color: '#AF00DB'  // Darker purple for keywords
+            light: { textDecoration: 'none; color: #AF00DB' },  // Dark purple for light theme
+            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme (inside light background)
+            rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-string', vscode.window.createTextEditorDecorationType({
-            color: '#A31515'  // Darker red/brown for strings
+            light: { textDecoration: 'none; color: #A31515' },  // Dark red for light theme
+            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-number', vscode.window.createTextEditorDecorationType({
-            color: '#098658'  // Darker green for numbers
+            light: { textDecoration: 'none; color: #098658' },  // Dark green for light theme
+            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-function', vscode.window.createTextEditorDecorationType({
-            color: '#795E26'  // Darker yellow/brown for functions
+            light: { textDecoration: 'none; color: #795E26' },  // Dark yellow for light theme
+            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-comment', vscode.window.createTextEditorDecorationType({
-            color: '#008000'  // Darker green for comments
+            light: { textDecoration: 'none; color: #008000' },  // Dark green for light theme
+            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-variable', vscode.window.createTextEditorDecorationType({
-            color: '#001080'  // Dark blue for variables
+            light: { textDecoration: 'none; color: #001080' },  // Dark blue for light theme
+            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-property', vscode.window.createTextEditorDecorationType({
-            color: '#001080'  // Dark blue for properties
+            light: { textDecoration: 'none; color: #001080' },  // Dark blue for light theme
+            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-operator', vscode.window.createTextEditorDecorationType({
-            color: '#000000'  // Black for operators
+            light: { textDecoration: 'none; color: #000000' },  // Black for light theme
+            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
     }
 
@@ -169,16 +186,29 @@ export class MarkdownCommentProvider {
         });
 
         const text = document.getText();
-        const comments = this.extractComments(text, document.languageId);
-        
         const decorations: Map<string, vscode.DecorationOptions[]> = new Map();
         this.decorationTypes.forEach((_, key) => {
             decorations.set(key, []);
         });
 
-        comments.forEach(comment => {
-            this.parseMarkdownInComment(comment, decorations, document, activeLine);
-        });
+        // Special handling for markdown files - treat entire content as markdown
+        if (document.languageId === 'markdown') {
+            const markdownBlock: CommentBlock = {
+                text: text,
+                startLine: 0,
+                endLine: document.lineCount - 1,
+                startChar: 0,
+                endChar: document.lineAt(document.lineCount - 1).text.length,
+                originalLines: text.split('\n')
+            };
+            this.parseMarkdownFile(text, markdownBlock, decorations, document, activeLine);
+        } else {
+            // Extract and process comments from code files
+            const comments = this.extractComments(text, document.languageId);
+            comments.forEach(comment => {
+                this.parseMarkdownInComment(comment, decorations, document, activeLine);
+            });
+        }
 
         // Apply decorations
         decorations.forEach((ranges, type) => {
@@ -315,19 +345,25 @@ export class MarkdownCommentProvider {
             case 'rust':
             case 'php':
                 return {
-                    singleLine: [/^\s*\/\/\s*(.*)$/m],
+                    singleLine: [/\/\/\s*(.*)$/],  // Matches // anywhere on the line
                     multiLineStart: [/^\s*\/\*/],
                     multiLineEnd: [/\*\//]
                 };
             case 'python':
                 return {
-                    singleLine: [/^\s*#\s*(.*)$/m],
+                    singleLine: [/#\s*(.*)$/],  // Matches # anywhere on the line
                     multiLineStart: [/^\s*"""/],
                     multiLineEnd: [/"""/]
                 };
+            case 'markdown':
+                return {
+                    singleLine: [],  // No single-line comments in markdown
+                    multiLineStart: [],  // No comment extraction needed - entire file is markdown
+                    multiLineEnd: []
+                };
             default:
                 return {
-                    singleLine: [/^\s*\/\/\s*(.*)$/m, /^\s*#\s*(.*)$/m],
+                    singleLine: [/\/\/\s*(.*)$/, /#\s*(.*)$/],
                     multiLineStart: [/^\s*\/\*/],
                     multiLineEnd: [/\*\//]
                 };
@@ -341,6 +377,45 @@ export class MarkdownCommentProvider {
         activeLine: number
     ): void {
         const text = comment.text;
+        const isSingleLine = comment.startLine === comment.endLine;
+        
+        if (isSingleLine) {
+            // Single-line comments: limited features only (no headers, lists, code blocks, gray overlay)
+            this.parseSingleLineComment(text, comment, decorations, document, activeLine);
+        } else {
+            // Multi-line comments: full markdown support
+            this.parseMultiLineComment(text, comment, decorations, document, activeLine);
+        }
+    }
+
+    private parseSingleLineComment(
+        text: string,
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number
+    ): void {
+        // NO gray color overlay for single-line comments
+        // NO code blocks, headers, or lists
+        // Only inline formatting: bold, italic, code, strikethrough
+        
+        const codeBlockRanges: Array<{start: number, end: number}> = []; // Empty - no code blocks in single lines
+        
+        // Parse inline formatting only - pass false for applyGrayColor to preserve original comment color
+        this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine, codeBlockRanges, false);
+        this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, codeBlockRanges, false);
+        this.parseAndReplace(text, /`([^`]+)`/g, 'code', comment, decorations, document, activeLine, codeBlockRanges, false);
+        this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, codeBlockRanges, false);
+    }
+
+    private parseMultiLineComment(
+        text: string,
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number
+    ): void {
+        // Full markdown support for multi-line comments
         
         // Identify code block regions to exclude from markdown processing
         const codeBlockRanges = this.getCodeBlockRanges(text);
@@ -353,6 +428,43 @@ export class MarkdownCommentProvider {
         
         // Replace comment block delimiters with horizontal lines
         this.replaceCommentDelimiters(comment, decorations, document, activeLine);
+        
+        // Hide asterisk line prefixes (decorative * at start of lines)
+        this.hideAsteriskPrefixes(comment, decorations, document, activeLine);
+        
+        // Replace code block markers (```) with horizontal lines
+        this.replaceCodeBlockDelimiters(text, comment, decorations, document, activeLine);
+        
+        // Parse markdown patterns and replace with formatted content
+        // Process ALL inline formatting FIRST, before any headers or lists
+        this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine, codeBlockRanges);
+        this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, codeBlockRanges);
+        // Match single backticks but not triple backticks (code blocks)
+        this.parseAndReplace(text, /(?<!`)`([^`]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, codeBlockRanges);
+        this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, codeBlockRanges);
+        
+        // Process lists (bullets and numbered)
+        this.parseLists(text, comment, decorations, document, activeLine);
+        
+        // Process headers LAST (this will only hide ## markers and add header styling)
+        this.parseHeadersWithNestedFormatting(text, comment, decorations, document, activeLine);
+    }
+
+    private parseMarkdownFile(
+        text: string,
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number
+    ): void {
+        // Markdown files: full markdown support without comment-specific processing
+        // NO gray color overlay, NO comment delimiter replacement
+        
+        // Identify code block regions to exclude from markdown processing
+        const codeBlockRanges = this.getCodeBlockRanges(text);
+        
+        // Apply syntax highlighting to code blocks
+        this.applySyntaxHighlightingToCodeBlocks(text, comment, decorations, document, activeLine, codeBlockRanges);
         
         // Replace code block markers (```) with horizontal lines
         this.replaceCodeBlockDelimiters(text, comment, decorations, document, activeLine);
@@ -385,16 +497,16 @@ export class MarkdownCommentProvider {
 
         const replaceList = decorations.get('replace') || [];
         
-        // Replace opening /* on first line
+        // Replace opening /* with any number of asterisks on first line
         const firstLine = comment.originalLines[0];
-        const openMatch = firstLine.match(/\/\*/);
+        const openMatch = firstLine.match(/\/\*+/);  // Match /* followed by any number of *
         if (openMatch && openMatch.index !== undefined) {
             const startPos = new vscode.Position(comment.startLine, openMatch.index);
-            const endPos = new vscode.Position(comment.startLine, openMatch.index + 2);
+            const endPos = new vscode.Position(comment.startLine, openMatch.index + openMatch[0].length);
             
             // Skip decoration if it's on the active line
             if (comment.startLine !== activeLine) {
-                // Hide the /*
+                // Hide the /* or /***** etc.
                 replaceList.push({
                     range: new vscode.Range(startPos, endPos)
                 });
@@ -412,16 +524,16 @@ export class MarkdownCommentProvider {
             }
         }
         
-        // Replace closing */ on last line
+        // Replace closing */ with any number of asterisks on last line
         const lastLine = comment.originalLines[comment.originalLines.length - 1];
-        const closeMatch = lastLine.match(/\*\//);
+        const closeMatch = lastLine.match(/\*+\//);  // Match any number of * followed by /
         if (closeMatch && closeMatch.index !== undefined) {
             const startPos = new vscode.Position(comment.endLine, closeMatch.index);
-            const endPos = new vscode.Position(comment.endLine, closeMatch.index + 2);
+            const endPos = new vscode.Position(comment.endLine, closeMatch.index + closeMatch[0].length);
             
             // Skip decoration if it's on the active line
             if (comment.endLine !== activeLine) {
-                // Hide the */
+                // Hide the */ or ****/ etc.
                 replaceList.push({
                     range: new vscode.Range(startPos, endPos)
                 });
@@ -442,6 +554,48 @@ export class MarkdownCommentProvider {
         decorations.set('replace', replaceList);
     }
 
+    private hideAsteriskPrefixes(
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number
+    ): void {
+        // Only process multi-line comments with original lines
+        if (!comment.originalLines || comment.originalLines.length < 2) {
+            return;
+        }
+
+        const replaceList = decorations.get('replace') || [];
+        
+        // Process each line in the comment block (skip first and last which are /* and */)
+        for (let i = 1; i < comment.originalLines.length - 1; i++) {
+            const line = comment.originalLines[i];
+            const lineNumber = comment.startLine + i;
+            
+            // Skip decoration if it's on the active line
+            if (lineNumber === activeLine) {
+                continue;
+            }
+            
+            // Match lines that start with optional whitespace, then "* " or "*" followed by space
+            const asteriskMatch = line.match(/^(\s*)\*\s/);
+            if (asteriskMatch && asteriskMatch.index !== undefined) {
+                const startChar = asteriskMatch.index; // Start from beginning (includes whitespace)
+                const endChar = startChar + asteriskMatch[0].length; // Full match length
+                
+                const startPos = new vscode.Position(lineNumber, startChar);
+                const endPos = new vscode.Position(lineNumber, endChar);
+                
+                // Hide the entire prefix including whitespace: " * "
+                replaceList.push({
+                    range: new vscode.Range(startPos, endPos)
+                });
+            }
+        }
+        
+        decorations.set('replace', replaceList);
+    }
+
     private getCodeBlockRanges(text: string): Array<{start: number, end: number}> {
         const ranges: Array<{start: number, end: number}> = [];
         const lines = text.split('\n');
@@ -453,14 +607,14 @@ export class MarkdownCommentProvider {
             const line = lines[i];
             if (/^```/.test(line)) {
                 if (!inCodeBlock) {
-                    // Start of code block
+                    // Start of code block - start AFTER this line
                     inCodeBlock = true;
-                    blockStart = currentPos;
+                    blockStart = currentPos + line.length + 1; // +1 for newline, start on next line
                 } else {
-                    // End of code block
+                    // End of code block - end BEFORE this line
                     ranges.push({
                         start: blockStart,
-                        end: currentPos + line.length
+                        end: currentPos // End before the closing ```
                     });
                     inCodeBlock = false;
                 }
@@ -482,38 +636,30 @@ export class MarkdownCommentProvider {
         for (const codeBlock of codeBlockRanges) {
             const codeContent = text.substring(codeBlock.start, codeBlock.end);
             
-            // Order matters: apply in reverse order of precedence (most important last)
-            // so that more specific patterns override more general ones
-            
-            // 1. Variables and identifiers (light blue)
-            const variables = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g;
-            this.applySyntaxPattern(codeContent, variables, 'syntax-variable', codeBlock.start, comment, decorations, document, activeLine, text);
-            
-            // 2. Properties (light blue) - override variables when they're properties
-            const properties = /\.([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
-            this.applySyntaxPattern(codeContent, properties, 'syntax-property', codeBlock.start, comment, decorations, document, activeLine, text, 1);
-            
-            // 3. Numbers (light green)
-            const numbers = /\b\d+\.?\d*\b/g;
-            this.applySyntaxPattern(codeContent, numbers, 'syntax-number', codeBlock.start, comment, decorations, document, activeLine, text);
-            
-            // 4. Keywords (purple) - override variables when they're keywords
-            const keywords = /\b(const|let|var|function|class|if|else|for|while|return|import|export|from|async|await|new|this|super|extends|implements|interface|type|enum|public|private|protected|static|readonly|null|undefined|true|false|void|any|string|number|boolean)\b/g;
-            this.applySyntaxPattern(codeContent, keywords, 'syntax-keyword', codeBlock.start, comment, decorations, document, activeLine, text);
-            
-            // 5. Function calls (yellow) - override variables when followed by (
-            const functions = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g;
-            this.applySyntaxPattern(codeContent, functions, 'syntax-function', codeBlock.start, comment, decorations, document, activeLine, text, 1);
-            
-            // 6. Strings (orange) - high priority to avoid conflicts
+            // Apply patterns in order - later ones will layer on top
+            // Strings (high priority to avoid conflicts)
             const strings = /(["'`])(?:(?=(\\?))\2.)*?\1/g;
             this.applySyntaxPattern(codeContent, strings, 'syntax-string', codeBlock.start, comment, decorations, document, activeLine, text);
             
-            // 7. Comments (green, italic) - highest priority, override everything
+            // Comments (highest priority, override everything)
             const comments = /\/\/.*$/gm;
             this.applySyntaxPattern(codeContent, comments, 'syntax-comment', codeBlock.start, comment, decorations, document, activeLine, text);
+            
+            // Keywords
+            const keywords = /\b(const|let|var|function|class|if|else|for|while|return|import|export|from|async|await|new|this|super|extends|implements|interface|type|enum|public|private|protected|static|readonly|null|undefined|true|false|void|any|string|number|boolean)\b/g;
+            this.applySyntaxPattern(codeContent, keywords, 'syntax-keyword', codeBlock.start, comment, decorations, document, activeLine, text);
+            
+            // Function calls
+            const functions = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g;
+            this.applySyntaxPattern(codeContent, functions, 'syntax-function', codeBlock.start, comment, decorations, document, activeLine, text, 1);
+            
+            // Numbers
+            const numbers = /\b\d+\.?\d*\b/g;
+            this.applySyntaxPattern(codeContent, numbers, 'syntax-number', codeBlock.start, comment, decorations, document, activeLine, text);
         }
     }
+
+
 
     private applySyntaxPattern(
         codeContent: string,
@@ -551,6 +697,8 @@ export class MarkdownCommentProvider {
         
         decorations.set(decorationType, decorationList);
     }
+
+
 
     private applyGrayColorExcludingCodeBlocks(
         comment: CommentBlock,
@@ -645,12 +793,17 @@ export class MarkdownCommentProvider {
             const halfLine = Math.floor(lineLength / 2);
             const horizontalLine = '─'.repeat(halfLine) + label + '─'.repeat(lineLength - halfLine);
             
+            // Detect theme and use opposite color for horizontal line
+            const themeKind = vscode.window.activeColorTheme.kind;
+            const isLightTheme = themeKind === vscode.ColorThemeKind.Light;
+            const lineColor = isLightTheme ? '#cccccc' : '#555555'; // Light color for dark bg, dark color for light bg
+            
             decorations.get('bold')?.push({
                 range: new vscode.Range(position.start, position.start),
                 renderOptions: {
                     before: {
                         contentText: horizontalLine,
-                        color: 'var(--vscode-textSeparator-foreground)'
+                        color: lineColor
                     }
                 }
             });
@@ -760,7 +913,8 @@ export class MarkdownCommentProvider {
         decorations: Map<string, vscode.DecorationOptions[]>,
         document: vscode.TextDocument,
         activeLine: number,
-        codeBlockRanges: Array<{start: number, end: number}> = []
+        codeBlockRanges: Array<{start: number, end: number}> = [],
+        applyGrayColor: boolean = true
     ): void {
         let match;
         const decorationList = decorations.get(decorationType) || [];
@@ -809,7 +963,7 @@ export class MarkdownCommentProvider {
                                            decorationType === 'header3' ? 'italic' : undefined,
                                 textDecoration: decorationType === 'strikethrough' ? 'line-through' : 
                                               decorationType === 'header1' ? 'underline' : undefined,
-                                color: (decorationType === 'bold' || decorationType === 'italic' || decorationType === 'strikethrough') ? '#808080' : 
+                                color: applyGrayColor && (decorationType === 'bold' || decorationType === 'italic' || decorationType === 'strikethrough') ? '#666666' : 
                                        (decorationType === 'header1' || decorationType === 'header2' || decorationType === 'header3') ? 
                                        'var(--vscode-textPreformat-foreground)' : undefined,
                                 backgroundColor: decorationType === 'code' ? 'var(--vscode-textCodeBlock-background)' : undefined,

@@ -1,4 +1,4 @@
-// # This is a Header Test
+// Single-line comments should have LIMITED formatting (no headers!)
 // This is **bold text** and this is *italic text*
 // Here is some `inline code` for testing
 // ~~This should be strikethrough~~
@@ -47,7 +47,15 @@ window.socket.emit('get-dem-info', ['id1', 'id2'], (result) => {
 */
 
 function testFunction() {
-    // ## Another header with **bold** text
+    // Single-line with **bold** text (no header support!)
     // Regular comment with *emphasis*
-    console.log("Testing markdown in comments");  // this is **bold** in a comment after a line of code
+    console.log("Testing markdown in comments");  // Trailing comment with **bold** formatting
+    const x = 5;  // Another trailing comment with `code` and *italic*
 }
+
+/*****
+ * comment block with  ` *` at the beginning
+* this comment has `*` at the beginning 
+ * 
+* 
+ ****/
