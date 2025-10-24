@@ -33,6 +33,17 @@ Testing *italic* and `code` here too
 - Another bullet
 1. Mixed with numbered
 2. Another number
+
+**Code Block Example**
+```javascript
+window.socket.emit('get-dem-info', ['id1', 'id2'], (result) => {
+  if (result) {
+    // Success: { id1: { stateOfResidence: 'CA', ... }, id2: null }
+  } else {
+    // Error: undefined
+  }
+})
+```
 */
 
 function testFunction() {
