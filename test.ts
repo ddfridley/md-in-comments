@@ -59,3 +59,40 @@ function testFunction() {
  * 
 * 
  ****/
+
+/*
+### Testing New Features
+
+#### Header Level 4
+##### Header Level 5
+###### Header Level 6
+####### Header Level 7
+
+**Links:**
+- Check out [VS Code Documentation](https://code.visualstudio.com)
+- Visit [GitHub](https://github.com) for more info
+- Read the [Markdown Guide](https://www.markdownguide.org)
+
+**Images:**
+- Logo: ![Company Logo](https://example.com/logo.png)
+- Screenshot: ![App Screenshot](./images/screenshot.png)
+- Icon: ![Settings Icon](icons/settings.svg)
+
+**Task Lists:**
+- [ ] Incomplete task
+- [x] Completed task
+- [ ] Another pending task
+- [X] Another completed task (uppercase X)
+- [ ] Task with **bold** text
+- [x] Task with *italic* text
+
+**Combined Features:**
+- [x] Completed task with [link](https://example.com)
+- [ ] Pending task with `code`
+- Task with ![image alt](url.png) embedded
+*/
+
+function testNewFeatures() {
+    // Test Ctrl+Alt+M to toggle markdown rendering on/off
+    console.log("Toggle test");
+}

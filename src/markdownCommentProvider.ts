@@ -103,6 +103,27 @@ export class MarkdownCommentProvider {
             fontWeight: 'bold',
             fontStyle: 'italic'
         }));
+        // Headers 4-7 use same format as Header 3
+        this.decorationTypes.set('header4', vscode.window.createTextEditorDecorationType({
+            color: '#666666',
+            fontWeight: 'bold',
+            fontStyle: 'italic'
+        }));
+        this.decorationTypes.set('header5', vscode.window.createTextEditorDecorationType({
+            color: '#666666',
+            fontWeight: 'bold',
+            fontStyle: 'italic'
+        }));
+        this.decorationTypes.set('header6', vscode.window.createTextEditorDecorationType({
+            color: '#666666',
+            fontWeight: 'bold',
+            fontStyle: 'italic'
+        }));
+        this.decorationTypes.set('header7', vscode.window.createTextEditorDecorationType({
+            color: '#666666',
+            fontWeight: 'bold',
+            fontStyle: 'italic'
+        }));
 
         // Gray color for comment block content - 20% darker than before
         this.decorationTypes.set('commentGray', vscode.window.createTextEditorDecorationType({
@@ -443,6 +464,13 @@ export class MarkdownCommentProvider {
         this.parseAndReplace(text, /(?<!`)`([^`]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, codeBlockRanges);
         this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, codeBlockRanges);
         
+        // Process links and images (must be before lists to avoid conflicts)
+        this.parseLinks(text, comment, decorations, document, activeLine, codeBlockRanges);
+        this.parseImages(text, comment, decorations, document, activeLine, codeBlockRanges);
+        
+        // Process task lists
+        this.parseTaskLists(text, comment, decorations, document, activeLine);
+        
         // Process lists (bullets and numbered)
         this.parseLists(text, comment, decorations, document, activeLine);
         
@@ -476,6 +504,13 @@ export class MarkdownCommentProvider {
         // Match single backticks but not triple backticks (code blocks)
         this.parseAndReplace(text, /(?<!`)`([^`]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, codeBlockRanges);
         this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, codeBlockRanges);
+        
+        // Process links and images (must be before lists to avoid conflicts)
+        this.parseLinks(text, comment, decorations, document, activeLine, codeBlockRanges);
+        this.parseImages(text, comment, decorations, document, activeLine, codeBlockRanges);
+        
+        // Process task lists
+        this.parseTaskLists(text, comment, decorations, document, activeLine);
         
         // Process lists (bullets and numbered)
         this.parseLists(text, comment, decorations, document, activeLine);
@@ -905,6 +940,184 @@ export class MarkdownCommentProvider {
         decorations.set('replace', replaceList);
     }
 
+    private parseLinks(
+        text: string,
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number,
+        codeBlockRanges: Array<{start: number, end: number}>
+    ): void {
+        // Match markdown links: [text](url)
+        const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+        let match;
+        const replaceList = decorations.get('replace') || [];
+        
+        linkPattern.lastIndex = 0;
+        while ((match = linkPattern.exec(text)) !== null) {
+            const linkText = match[1];
+            const url = match[2];
+            const fullStart = match.index;
+            const fullEnd = fullStart + match[0].length;
+            
+            // Skip if this match is inside a code block
+            const isInCodeBlock = codeBlockRanges.some(range => 
+                fullStart >= range.start && fullEnd <= range.end
+            );
+            if (isInCodeBlock) {
+                continue;
+            }
+            
+            // Get position for the entire link
+            const position = this.getDocumentPosition(fullStart, fullEnd, comment, document, text);
+            
+            if (position) {
+                // Skip decoration if it's on the active line
+                if (position.start.line === activeLine || position.end.line === activeLine) {
+                    continue;
+                }
+                
+                // Hide the original link syntax
+                replaceList.push({
+                    range: new vscode.Range(position.start, position.end)
+                });
+                
+                // Show only the link text with underline to indicate it's a link
+                const decorationList = decorations.get('code') || [];
+                decorationList.push({
+                    range: new vscode.Range(position.start, position.start),
+                    renderOptions: {
+                        before: {
+                            contentText: linkText,
+                            color: '#0066cc',
+                            textDecoration: 'underline'
+                        }
+                    },
+                    hoverMessage: new vscode.MarkdownString(`Link: [${linkText}](${url})`)
+                });
+                decorations.set('code', decorationList);
+            }
+        }
+        
+        decorations.set('replace', replaceList);
+    }
+
+    private parseImages(
+        text: string,
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number,
+        codeBlockRanges: Array<{start: number, end: number}>
+    ): void {
+        // Match markdown images: ![alt](url)
+        const imagePattern = /!\[([^\]]+)\]\(([^)]+)\)/g;
+        let match;
+        const replaceList = decorations.get('replace') || [];
+        
+        imagePattern.lastIndex = 0;
+        while ((match = imagePattern.exec(text)) !== null) {
+            const altText = match[1];
+            const url = match[2];
+            const fullStart = match.index;
+            const fullEnd = fullStart + match[0].length;
+            
+            // Skip if this match is inside a code block
+            const isInCodeBlock = codeBlockRanges.some(range => 
+                fullStart >= range.start && fullEnd <= range.end
+            );
+            if (isInCodeBlock) {
+                continue;
+            }
+            
+            // Get position for the entire image syntax
+            const position = this.getDocumentPosition(fullStart, fullEnd, comment, document, text);
+            
+            if (position) {
+                // Skip decoration if it's on the active line
+                if (position.start.line === activeLine || position.end.line === activeLine) {
+                    continue;
+                }
+                
+                // Hide the original image syntax
+                replaceList.push({
+                    range: new vscode.Range(position.start, position.end)
+                });
+                
+                // Show only the alt text with italic style to indicate it's an image
+                const decorationList = decorations.get('italic') || [];
+                decorationList.push({
+                    range: new vscode.Range(position.start, position.start),
+                    renderOptions: {
+                        before: {
+                            contentText: `🖼️ ${altText}`,
+                            fontStyle: 'italic',
+                            color: '#666666'
+                        }
+                    },
+                    hoverMessage: new vscode.MarkdownString(`Image: ![${altText}](${url})`)
+                });
+                decorations.set('italic', decorationList);
+            }
+        }
+        
+        decorations.set('replace', replaceList);
+    }
+
+    private parseTaskLists(
+        text: string,
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number
+    ): void {
+        // Match task list items: - [ ] unchecked or - [x] checked
+        const taskPattern = /^(\s*)-\s+\[([ xX])\]\s+(.*)$/gm;
+        let match;
+        const replaceList = decorations.get('replace') || [];
+        
+        taskPattern.lastIndex = 0;
+        while ((match = taskPattern.exec(text)) !== null) {
+            const indent = match[1] || '';
+            const checkState = match[2];
+            const content = match[3];
+            const markerStart = match.index + indent.length;
+            const markerEnd = markerStart + (match[0].length - indent.length - content.length);
+            
+            // Get position for the task marker
+            const markerPosition = this.getDocumentPosition(markerStart, markerEnd, comment, document, text);
+            
+            if (markerPosition) {
+                // Skip decoration if it's on the active line
+                if (markerPosition.start.line === activeLine) {
+                    continue;
+                }
+                
+                // Hide the original marker (- [ ] or - [x])
+                replaceList.push({
+                    range: new vscode.Range(markerPosition.start, markerPosition.end)
+                });
+                
+                // Replace with checkbox character
+                const isChecked = checkState.toLowerCase() === 'x';
+                const checkbox = isChecked ? '☑' : '☐';
+                const decorationList = decorations.get('bold') || [];
+                decorationList.push({
+                    range: new vscode.Range(markerPosition.start, markerPosition.start),
+                    renderOptions: {
+                        before: {
+                            contentText: `${checkbox} `,
+                            color: isChecked ? '#4CAF50' : '#808080'
+                        }
+                    }
+                });
+                decorations.set('bold', decorationList);
+            }
+        }
+        
+        decorations.set('replace', replaceList);
+    }
+
     private parseAndReplace(
         text: string,
         pattern: RegExp,
@@ -960,11 +1173,15 @@ export class MarkdownCommentProvider {
                                 contentText: content,
                                 fontWeight: decorationType === 'bold' ? 'bold' : undefined,
                                 fontStyle: decorationType === 'italic' ? 'italic' : 
-                                           decorationType === 'header3' ? 'italic' : undefined,
+                                           (decorationType === 'header3' || decorationType === 'header4' || 
+                                            decorationType === 'header5' || decorationType === 'header6' || 
+                                            decorationType === 'header7') ? 'italic' : undefined,
                                 textDecoration: decorationType === 'strikethrough' ? 'line-through' : 
                                               decorationType === 'header1' ? 'underline' : undefined,
                                 color: applyGrayColor && (decorationType === 'bold' || decorationType === 'italic' || decorationType === 'strikethrough') ? '#666666' : 
-                                       (decorationType === 'header1' || decorationType === 'header2' || decorationType === 'header3') ? 
+                                       (decorationType === 'header1' || decorationType === 'header2' || decorationType === 'header3' ||
+                                        decorationType === 'header4' || decorationType === 'header5' || 
+                                        decorationType === 'header6' || decorationType === 'header7') ? 
                                        'var(--vscode-textPreformat-foreground)' : undefined,
                                 backgroundColor: decorationType === 'code' ? 'var(--vscode-textCodeBlock-background)' : undefined,
                                 border: decorationType === 'code' ? '1px solid var(--vscode-textBlockQuote-border)' : undefined,
@@ -991,6 +1208,11 @@ export class MarkdownCommentProvider {
         activeLine: number
     ): void {
         // Process different header levels - use negative lookahead to prevent overlaps
+        // Headers 4-7 are parsed first (longest to shortest) to avoid overlap
+        this.parseHeaderLevel(text, /^####### (.*$)/gm, 'header7', comment, decorations, document, activeLine);
+        this.parseHeaderLevel(text, /^###### (.*$)/gm, 'header6', comment, decorations, document, activeLine);
+        this.parseHeaderLevel(text, /^##### (.*$)/gm, 'header5', comment, decorations, document, activeLine);
+        this.parseHeaderLevel(text, /^#### (.*$)/gm, 'header4', comment, decorations, document, activeLine);
         this.parseHeaderLevel(text, /^### (.*$)/gm, 'header3', comment, decorations, document, activeLine);
         this.parseHeaderLevel(text, /^##(?!#) (.*$)/gm, 'header2', comment, decorations, document, activeLine);
         this.parseHeaderLevel(text, /^#(?!#) (.*$)/gm, 'header1', comment, decorations, document, activeLine);

@@ -55,8 +55,11 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// Register commands
 	const toggleCommand = vscode.commands.registerCommand('md-in-comments.toggle', () => {
+		console.log('Toggle command triggered!');
 		markdownProvider.toggle();
-		vscode.window.showInformationMessage(`Markdown in Comments: ${markdownProvider.isEnabled ? 'Enabled' : 'Disabled'}`);
+		const status = markdownProvider.isEnabled ? 'Enabled' : 'Disabled';
+		console.log(`Markdown in Comments: ${status}`);
+		vscode.window.showInformationMessage(`Markdown in Comments: ${status}`);
 	});
 
 	context.subscriptions.push(toggleCommand);

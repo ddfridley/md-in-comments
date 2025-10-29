@@ -32,6 +32,14 @@
         "category": "MD in Comments"
       }
     ],
+    "keybindings": [
+      {
+        "command": "md-in-comments.toggle",
+        "key": "ctrl+shift+alt+m",
+        "mac": "cmd+shift+alt+m",
+        "when": "editorTextFocus"
+      }
+    ],
     "configuration": {
       "title": "MD in Comments",
       "properties": {
