@@ -2,7 +2,7 @@
   "name": "md-in-comments",
   "displayName": "MD in Comments",
   "description": "Renders markdown formatting within comment blocks in code files",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "engines": {
     "vscode": "^1.105.0"
   },
@@ -10,18 +10,12 @@
     "Formatters",
     "Visualization"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ddfri/md-comments"
+  },
   "activationEvents": [
-    "onLanguage:typescript",
-    "onLanguage:javascript", 
-    "onLanguage:python",
-    "onLanguage:java",
-    "onLanguage:csharp",
-    "onLanguage:cpp",
-    "onLanguage:c",
-    "onLanguage:go",
-    "onLanguage:rust",
-    "onLanguage:php",
-    "onLanguage:markdown"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {

@@ -15,7 +15,7 @@ export function activate(context: vscode.ExtensionContext) {
 	const markdownProvider = new MarkdownCommentProvider();
 
 	// Register the decoration provider for all supported languages
-	const supportedLanguages = ['typescript', 'javascript', 'python', 'java', 'csharp', 'cpp', 'c', 'go', 'rust', 'php', 'markdown'];
+	const supportedLanguages = ['typescript', 'javascript', 'python', 'java', 'csharp', 'cpp', 'c', 'go', 'rust', 'php', 'markdown', 'instructions'];
 	
 	// Register text document change listeners for supported languages
 	// Only update when switching files or opening new files
@@ -49,16 +49,14 @@ export function activate(context: vscode.ExtensionContext) {
 	if (vscode.window.activeTextEditor) {
 		const doc = vscode.window.activeTextEditor.document;
 		if (supportedLanguages.includes(doc.languageId)) {
-			markdownProvider.updateDecorations(doc);
+			markdownProvider.forceUpdate(doc);
 		}
 	}
 
 	// Register commands
 	const toggleCommand = vscode.commands.registerCommand('md-in-comments.toggle', () => {
-		console.log('Toggle command triggered!');
 		markdownProvider.toggle();
 		const status = markdownProvider.isEnabled ? 'Enabled' : 'Disabled';
-		console.log(`Markdown in Comments: ${status}`);
 		vscode.window.showInformationMessage(`Markdown in Comments: ${status}`);
 	});
 

@@ -87,6 +87,9 @@ export class MarkdownCommentProvider {
         this.decorationTypes.set('code', vscode.window.createTextEditorDecorationType({}));
         this.decorationTypes.set('strikethrough', vscode.window.createTextEditorDecorationType({}));
         
+        // Dedicated decoration type for line indentation
+        this.decorationTypes.set('indent', vscode.window.createTextEditorDecorationType({}));
+        
         // Header decorations with actual styling - darkest to lighter gray tones
         // Base gray reduced by 20% (from #808080 to #666666)
         this.decorationTypes.set('header1', vscode.window.createTextEditorDecorationType({
@@ -103,31 +106,35 @@ export class MarkdownCommentProvider {
             fontWeight: 'bold',
             fontStyle: 'italic'
         }));
-        // Headers 4-7 use same format as Header 3
+        // Headers 4-7 use same format as Header 3 but with smaller font sizes
         this.decorationTypes.set('header4', vscode.window.createTextEditorDecorationType({
             color: '#666666',
             fontWeight: 'bold',
-            fontStyle: 'italic'
+            fontStyle: 'italic',
+            textDecoration: 'none; font-size: 0.95em'  // 95% of normal size
         }));
         this.decorationTypes.set('header5', vscode.window.createTextEditorDecorationType({
             color: '#666666',
             fontWeight: 'bold',
-            fontStyle: 'italic'
+            fontStyle: 'italic',
+            textDecoration: 'none; font-size: 0.9em'  // 90% of normal size
         }));
         this.decorationTypes.set('header6', vscode.window.createTextEditorDecorationType({
             color: '#666666',
             fontWeight: 'bold',
-            fontStyle: 'italic'
+            fontStyle: 'italic',
+            textDecoration: 'none; font-size: 0.85em'  // 85% of normal size
         }));
         this.decorationTypes.set('header7', vscode.window.createTextEditorDecorationType({
             color: '#666666',
             fontWeight: 'bold',
-            fontStyle: 'italic'
+            fontStyle: 'italic',
+            textDecoration: 'none; font-size: 0.8em'  // 80% of normal size
         }));
 
-        // Gray color for comment block content - 20% darker than before
+        // Gray color for comment block content - made darker
         this.decorationTypes.set('commentGray', vscode.window.createTextEditorDecorationType({
-            color: '#666666'  // Was #808080, now 20% darker
+            color: '#4d4d4d'  // Darker gray (was #666666)
         }));
 
         // Replacement decoration that makes original text take no space
@@ -213,7 +220,8 @@ export class MarkdownCommentProvider {
         });
 
         // Special handling for markdown files - treat entire content as markdown
-        if (document.languageId === 'markdown') {
+        // Support both 'markdown' and 'instructions' (for .github/copilot-instructions.md)
+        if (document.languageId === 'markdown' || document.languageId === 'instructions') {
             const markdownBlock: CommentBlock = {
                 text: text,
                 startLine: 0,
@@ -253,7 +261,6 @@ export class MarkdownCommentProvider {
     }
 
     public forceUpdate(document: vscode.TextDocument): void {
-        console.log('forceUpdate called');
         // Reset the last active line to force a re-render
         this.lastActiveLine = -1;
         this.updateDecorations(document);
@@ -425,7 +432,7 @@ export class MarkdownCommentProvider {
         // Parse inline formatting only - pass false for applyGrayColor to preserve original comment color
         this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine, codeBlockRanges, false);
         this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, codeBlockRanges, false);
-        this.parseAndReplace(text, /`([^`]+)`/g, 'code', comment, decorations, document, activeLine, codeBlockRanges, false);
+        this.parseAndReplace(text, /(?<!`)`([^`\n]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, codeBlockRanges, false);
         this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, codeBlockRanges, false);
     }
 
@@ -456,12 +463,15 @@ export class MarkdownCommentProvider {
         // Replace code block markers (```) with horizontal lines
         this.replaceCodeBlockDelimiters(text, comment, decorations, document, activeLine);
         
+        // Add 1ch indent to all non-empty lines in the comment block
+        this.addLineIndentation(comment, decorations, document, activeLine);
+        
         // Parse markdown patterns and replace with formatted content
         // Process ALL inline formatting FIRST, before any headers or lists
         this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine, codeBlockRanges);
         this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, codeBlockRanges);
-        // Match single backticks but not triple backticks (code blocks)
-        this.parseAndReplace(text, /(?<!`)`([^`]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, codeBlockRanges);
+        // Match single backticks but not triple backticks (code blocks) - [^`\n]+ prevents matching across lines
+        this.parseAndReplace(text, /(?<!`)`([^`\n]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, codeBlockRanges);
         this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, codeBlockRanges);
         
         // Process links and images (must be before lists to avoid conflicts)
@@ -501,8 +511,8 @@ export class MarkdownCommentProvider {
         // Process ALL inline formatting FIRST, before any headers or lists
         this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine, codeBlockRanges);
         this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, codeBlockRanges);
-        // Match single backticks but not triple backticks (code blocks)
-        this.parseAndReplace(text, /(?<!`)`([^`]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, codeBlockRanges);
+        // Match single backticks but not triple backticks (code blocks) - [^`\n]+ prevents matching across lines
+        this.parseAndReplace(text, /(?<!`)`([^`\n]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, codeBlockRanges);
         this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, codeBlockRanges);
         
         // Process links and images (must be before lists to avoid conflicts)
@@ -601,6 +611,7 @@ export class MarkdownCommentProvider {
         }
 
         const replaceList = decorations.get('replace') || [];
+        const indentList = decorations.get('indent') || [];
         
         // Process each line in the comment block (skip first and last which are /* and */)
         for (let i = 1; i < comment.originalLines.length - 1; i++) {
@@ -612,7 +623,8 @@ export class MarkdownCommentProvider {
                 continue;
             }
             
-            // Match lines that start with optional whitespace, then "* " or "*" followed by space
+            // Match lines that start with optional whitespace, then "* " 
+            // This handles both " * " and "* " patterns
             const asteriskMatch = line.match(/^(\s*)\*\s/);
             if (asteriskMatch && asteriskMatch.index !== undefined) {
                 const startChar = asteriskMatch.index; // Start from beginning (includes whitespace)
@@ -621,14 +633,99 @@ export class MarkdownCommentProvider {
                 const startPos = new vscode.Position(lineNumber, startChar);
                 const endPos = new vscode.Position(lineNumber, endChar);
                 
-                // Hide the entire prefix including whitespace: " * "
+                // Hide the entire prefix including whitespace: " * " or "* "
                 replaceList.push({
                     range: new vscode.Range(startPos, endPos)
+                });
+                
+                // Add 1ch indent at the position where content will start (after the hidden prefix)
+                indentList.push({
+                    range: new vscode.Range(endPos, endPos),
+                    renderOptions: {
+                        before: {
+                            contentText: '',
+                            margin: '0 0 0 1ch'
+                        }
+                    }
                 });
             }
         }
         
         decorations.set('replace', replaceList);
+        decorations.set('indent', indentList);
+    }
+
+    private addLineIndentation(
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number
+    ): void {
+        // Add 1ch indent to the start of each non-empty line in the comment block
+        // Use dedicated 'indent' decoration type to avoid conflicts
+        const indentList = decorations.get('indent') || [];
+        
+        for (let lineNum = comment.startLine; lineNum <= comment.endLine; lineNum++) {
+            // Skip the active line
+            if (lineNum === activeLine) {
+                continue;
+            }
+            
+            const lineText = document.lineAt(lineNum).text;
+            const trimmedLine = lineText.trim();
+            
+            // Skip empty lines and comment delimiter lines
+            if (trimmedLine.length === 0 || trimmedLine === '/*' || trimmedLine === '*/' || 
+                trimmedLine.startsWith('/*') || trimmedLine.endsWith('*/')) {
+                continue;
+            }
+            
+            // Find the first non-whitespace character position
+            const firstCharIndex = lineText.search(/\S/);
+            if (firstCharIndex === -1) {
+                continue;
+            }
+            
+            // Skip lines with asterisk prefix (" * " or "* ") - handled by hideAsteriskPrefixes
+            const afterFirstChar = lineText.substring(firstCharIndex);
+            if (/^\*\s/.test(afterFirstChar) && !/^\*\*/.test(afterFirstChar)) {
+                continue;
+            }
+            
+            // Skip list items (bullets with dash, numbers, tasks) - they have their own indentation
+            // Note: We check for "- " (dash) not "* " (asterisk) since asterisk is comment prefix
+            if (/^-\s/.test(trimmedLine) || /^\d+\.\s/.test(trimmedLine) || 
+                /^-\s*\[([ xX])\]/.test(trimmedLine)) {
+                continue;
+            }
+            
+            // Skip code block delimiters
+            if (/^```/.test(trimmedLine)) {
+                continue;
+            }
+            
+            // Skip lines that start with markdown syntax (bold, italic, code, strikethrough)
+            // These are handled by parseAndReplace which adds indent when rendering
+            if (/^\*\*/.test(trimmedLine) || /^~~/.test(trimmedLine) || /^`/.test(trimmedLine) ||
+                (/^\*/.test(trimmedLine) && !/^\*\*/.test(trimmedLine) && !/^\*\s/.test(trimmedLine))) {
+                continue;
+            }
+            
+            const startPos = new vscode.Position(lineNum, firstCharIndex);
+            
+            // Add invisible character with margin to create indent
+            indentList.push({
+                range: new vscode.Range(startPos, startPos),
+                renderOptions: {
+                    before: {
+                        contentText: '',
+                        margin: '0 0 0 1ch'
+                    }
+                }
+            });
+        }
+        
+        decorations.set('indent', indentList);
     }
 
     private getCodeBlockRanges(text: string): Array<{start: number, end: number}> {
@@ -858,6 +955,8 @@ export class MarkdownCommentProvider {
         const bulletPattern = /^(\s*)[-*]\s+(.*)$/gm;
         // Match ordered list items: 1. item, 2. item, etc.
         const numberedPattern = /^(\s*)(\d+)\.\s+(.*)$/gm;
+        // Task list pattern to skip - no ^ anchor since we're testing extracted text
+        const taskPattern = /^\s*-\s+\[([ xX])\]/;
         
         let match;
         const replaceList = decorations.get('replace') || [];
@@ -867,6 +966,12 @@ export class MarkdownCommentProvider {
         while ((match = bulletPattern.exec(text)) !== null) {
             const indent = match[1] || '';
             const content = match[2];
+            
+            // Skip if this is a task list item - check the content for [ ] or [x]
+            if (/^\[([ xX])\]/.test(content)) {
+                continue;
+            }
+            
             const markerStart = match.index + indent.length;
             const markerEnd = markerStart + 2; // "- " or "* "
             
@@ -883,14 +988,15 @@ export class MarkdownCommentProvider {
                     range: new vscode.Range(markerPosition.start, markerPosition.end)
                 });
                 
-                // Replace with bullet character
+                // Replace with bullet character with margin-left for indent (2ch = 1ch base + 1ch list)
                 const decorationList = decorations.get('bold') || [];
                 decorationList.push({
                     range: new vscode.Range(markerPosition.start, markerPosition.start),
                     renderOptions: {
                         before: {
                             contentText: '• ',
-                            color: '#808080'
+                            color: '#808080',
+                            margin: '0 0 0 2ch'  // 2 character width left margin for indent
                         }
                     }
                 });
@@ -921,7 +1027,7 @@ export class MarkdownCommentProvider {
                     range: new vscode.Range(markerPosition.start, markerPosition.end)
                 });
                 
-                // Replace with styled number
+                // Replace with styled number with margin-left for indent (2ch = 1ch base + 1ch list)
                 const decorationList = decorations.get('bold') || [];
                 decorationList.push({
                     range: new vscode.Range(markerPosition.start, markerPosition.start),
@@ -929,7 +1035,8 @@ export class MarkdownCommentProvider {
                         before: {
                             contentText: `${number}. `,
                             color: '#808080',
-                            fontWeight: 'bold'
+                            fontWeight: 'bold',
+                            margin: '0 0 0 2ch'  // 2 character width left margin for indent
                         }
                     }
                 });
@@ -1098,7 +1205,7 @@ export class MarkdownCommentProvider {
                     range: new vscode.Range(markerPosition.start, markerPosition.end)
                 });
                 
-                // Replace with checkbox character
+                // Replace with checkbox character with margin-left for indent (2ch = 1ch base + 1ch list)
                 const isChecked = checkState.toLowerCase() === 'x';
                 const checkbox = isChecked ? '☑' : '☐';
                 const decorationList = decorations.get('bold') || [];
@@ -1107,7 +1214,8 @@ export class MarkdownCommentProvider {
                     renderOptions: {
                         before: {
                             contentText: `${checkbox} `,
-                            color: isChecked ? '#4CAF50' : '#808080'
+                            color: isChecked ? '#4CAF50' : '#808080',
+                            margin: '0 0 0 2ch'  // 2 character width left margin for indent
                         }
                     }
                 });
@@ -1165,6 +1273,11 @@ export class MarkdownCommentProvider {
                     });
                     decorations.set('replace', replaceList);
                     
+                    // Check if this element is at the start of the line (position.start.character is 0 or only whitespace before)
+                    const lineText = document.lineAt(position.start.line).text;
+                    const textBeforeElement = lineText.substring(0, position.start.character).trim();
+                    const isAtLineStart = textBeforeElement === '' || textBeforeElement === '*' || /^\*+$/.test(textBeforeElement);
+                    
                     // Add formatted content before the hidden text
                     const decorationOptions: vscode.DecorationOptions = {
                         range: new vscode.Range(position.start, position.start), // Zero-width range at start
@@ -1178,14 +1291,15 @@ export class MarkdownCommentProvider {
                                             decorationType === 'header7') ? 'italic' : undefined,
                                 textDecoration: decorationType === 'strikethrough' ? 'line-through' : 
                                               decorationType === 'header1' ? 'underline' : undefined,
-                                color: applyGrayColor && (decorationType === 'bold' || decorationType === 'italic' || decorationType === 'strikethrough') ? '#666666' : 
+                                color: applyGrayColor && (decorationType === 'bold' || decorationType === 'italic' || decorationType === 'strikethrough') ? '#4d4d4d' : 
                                        (decorationType === 'header1' || decorationType === 'header2' || decorationType === 'header3' ||
                                         decorationType === 'header4' || decorationType === 'header5' || 
                                         decorationType === 'header6' || decorationType === 'header7') ? 
                                        'var(--vscode-textPreformat-foreground)' : undefined,
                                 backgroundColor: decorationType === 'code' ? 'var(--vscode-textCodeBlock-background)' : undefined,
                                 border: decorationType === 'code' ? '1px solid var(--vscode-textBlockQuote-border)' : undefined,
-                                margin: decorationType === 'code' ? '0px 2px' : undefined,
+                                margin: decorationType === 'code' ? '0px 2px' : 
+                                        isAtLineStart ? '0 2px 0 1ch' : undefined,  // Add 1ch left margin if at line start
 
                             }
                         },

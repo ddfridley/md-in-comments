@@ -89,7 +89,9 @@ function testFunction() {
 **Combined Features:**
 - [x] Completed task with [link](https://example.com)
 - [ ] Pending task with `code`
-- Task with ![image alt](url.png) embedded
+- [ ] Task with ![image alt](url.png) embedded
+- [ ] Task with ![image alt](url.png) embedded
+
 */
 
 function testNewFeatures() {
