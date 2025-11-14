@@ -34,10 +34,10 @@ Limited markdown support in `//` and `#` comments:
 Full markdown rendering in `.md` files with all features enabled.
 
 🎨 **Visual Hierarchy**: Headers in block comments are distinguished by color intensity and styling:
-- H1: Darkest gray (#1a1a1a), bold, underlined, 100% size
-- H2: Dark gray (#333333), bold, 100% size
-- H3: Medium gray (#666666), bold, italic, 100% size
-- H4-H7: Medium gray (#666666), bold, italic, progressively smaller (95%, 90%, 85%, 80%)
+- H1: Darkest gray (#1a1a1a), bold, underlined, 150% size
+- H2: Dark gray (#333333), bold, 125% size
+- H3: Dark gray (#333333), bold, 100% size
+- H4-H7: Dark gray (#333333), bold, progressively smaller (95%, 90%, 85%, 80%)
 
 📊 **Syntax Highlighting**: Code blocks feature pattern-based syntax highlighting that adapts to your theme:
 - Light themes: Colorful syntax highlighting (purple keywords, red strings, etc.)
@@ -126,7 +126,7 @@ The extension automatically detects and renders the markdown formatting. Click o
 
 ## Known Issues
 
-- Font size for H1-H3 can not be larger than the line due to VS Code API limitations
+- H1 and H2 use larger font sizes (150% and 125%) which may extend beyond line boundaries
 - H4-H7 use progressively smaller fonts but may affect line height
 - Code block syntax highlighting uses pattern-based coloring (not semantic)
 - Syntax colors are theme-aware for light/dark but may not perfectly match all color schemes
@@ -134,8 +134,19 @@ The extension automatically detects and renders the markdown formatting. Click o
 - Single-line comments don't support headers, lists, or code blocks
 - Code blocks inherit VS Code's comment color (typically green) with syntax highlighting overlaid
 - Images only show alt text, not actual images (VS Code API limitation)
+- Links are not directly clickable in rendered mode (click line to edit, then Ctrl+Click URL)
 
 ## Release Notes
+
+### 0.0.4 (Current)
+
+- Improved performance: Caching system prevents re-rendering entire document when clicking between lines
+- Fixed bold/italic/code text spacing issues with negative letter-spacing on hidden text
+- Added support for HTML comments in markdown files (content inside `<!-- -->` is now properly handled)
+- Added support for `.github/copilot-instructions.md` files (languageId: 'instructions')
+- Fixed document change detection to invalidate cache when content is edited
+- Removed unnecessary indentation from pure markdown files (only applies to code comments)
+- Header font sizes: H1 at 150%, H2 at 125%
 
 ### 0.0.3
 
