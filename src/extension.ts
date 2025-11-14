@@ -45,6 +45,15 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 	context.subscriptions.push(cursorDisposable);
 
+	// Register for document content changes to invalidate cache
+	const documentChangeDisposable = vscode.workspace.onDidChangeTextDocument((event) => {
+		if (supportedLanguages.includes(event.document.languageId)) {
+			// Clear cache and force update when document content changes
+			markdownProvider.forceUpdate(event.document);
+		}
+	});
+	context.subscriptions.push(documentChangeDisposable);
+
 	// Initialize decorations for the current active editor
 	if (vscode.window.activeTextEditor) {
 		const doc = vscode.window.activeTextEditor.document;
