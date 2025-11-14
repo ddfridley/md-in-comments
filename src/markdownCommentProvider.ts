@@ -58,6 +58,7 @@ export class MarkdownCommentProvider {
     private updateTimeout: NodeJS.Timeout | undefined;
     private readonly debounceDelay = 300; // milliseconds
     private lastActiveLine: number = -1;
+    private cachedDecorations: Map<string, Map<string, vscode.DecorationOptions[]>> = new Map(); // Cache decorations by document URI
 
     constructor() {
         this.initializeDecorationTypes();
@@ -95,40 +96,36 @@ export class MarkdownCommentProvider {
         this.decorationTypes.set('header1', vscode.window.createTextEditorDecorationType({
             color: '#1a1a1a',  // Darkest gray (was #303030, now much darker)
             fontWeight: 'bold',
-            textDecoration: 'underline'
+            textDecoration: 'underline; font-size: 1.5em'  // 150% size
         }));
         this.decorationTypes.set('header2', vscode.window.createTextEditorDecorationType({
             color: '#333333',  // Dark gray (was #505050, now darker)
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            textDecoration: 'none; font-size: 1.25em'  // 125% size
         }));
         this.decorationTypes.set('header3', vscode.window.createTextEditorDecorationType({
-            color: '#666666',  // Medium gray (was #888888, now darker - this is base -20%)
+            color: '#333333',  // Medium gray (was #888888, now darker - this is base -20%)
             fontWeight: 'bold',
-            fontStyle: 'italic'
         }));
         // Headers 4-7 use same format as Header 3 but with smaller font sizes
         this.decorationTypes.set('header4', vscode.window.createTextEditorDecorationType({
-            color: '#666666',
+            color: '#333333',
             fontWeight: 'bold',
-            fontStyle: 'italic',
             textDecoration: 'none; font-size: 0.95em'  // 95% of normal size
         }));
         this.decorationTypes.set('header5', vscode.window.createTextEditorDecorationType({
-            color: '#666666',
+            color: '#333333',
             fontWeight: 'bold',
-            fontStyle: 'italic',
             textDecoration: 'none; font-size: 0.9em'  // 90% of normal size
         }));
         this.decorationTypes.set('header6', vscode.window.createTextEditorDecorationType({
-            color: '#666666',
+            color: '#333333',
             fontWeight: 'bold',
-            fontStyle: 'italic',
             textDecoration: 'none; font-size: 0.85em'  // 85% of normal size
         }));
         this.decorationTypes.set('header7', vscode.window.createTextEditorDecorationType({
-            color: '#666666',
+            color: '#333333',
             fontWeight: 'bold',
-            fontStyle: 'italic',
             textDecoration: 'none; font-size: 0.8em'  // 80% of normal size
         }));
 
@@ -139,8 +136,9 @@ export class MarkdownCommentProvider {
 
         // Replacement decoration that makes original text take no space
         this.decorationTypes.set('replace', vscode.window.createTextEditorDecorationType({
-            color: 'transparent',
-            textDecoration: 'none; font-size: 0.1px; width: 0px; margin: 0px'
+            opacity: '0',
+            letterSpacing: '-999px',
+            textDecoration: 'none; font-size: 0.01em'
         }));
         
         // Syntax highlighting colors for code blocks
@@ -205,42 +203,58 @@ export class MarkdownCommentProvider {
             return;
         }
         
+        const previousActiveLine = this.lastActiveLine;
         // Update the last active line
         this.lastActiveLine = activeLine;
 
-        // Clear existing decorations
-        this.decorationTypes.forEach(decorationType => {
-            editor.setDecorations(decorationType, []);
-        });
-
-        const text = document.getText();
-        const decorations: Map<string, vscode.DecorationOptions[]> = new Map();
-        this.decorationTypes.forEach((_, key) => {
-            decorations.set(key, []);
-        });
-
-        // Special handling for markdown files - treat entire content as markdown
-        // Support both 'markdown' and 'instructions' (for .github/copilot-instructions.md)
-        if (document.languageId === 'markdown' || document.languageId === 'instructions') {
-            const markdownBlock: CommentBlock = {
-                text: text,
-                startLine: 0,
-                endLine: document.lineCount - 1,
-                startChar: 0,
-                endChar: document.lineAt(document.lineCount - 1).text.length,
-                originalLines: text.split('\n')
-            };
-            this.parseMarkdownFile(text, markdownBlock, decorations, document, activeLine);
-        } else {
-            // Extract and process comments from code files
-            const comments = this.extractComments(text, document.languageId);
-            comments.forEach(comment => {
-                this.parseMarkdownInComment(comment, decorations, document, activeLine);
+        // Check if we have cached decorations for this document
+        const docUri = document.uri.toString();
+        let allDecorations = this.cachedDecorations.get(docUri);
+        
+        // If no cache, parse and cache
+        if (!allDecorations) {
+            allDecorations = new Map();
+            this.decorationTypes.forEach((_, key) => {
+                allDecorations!.set(key, []);
             });
+
+            const text = document.getText();
+
+            // Special handling for markdown files - treat entire content as markdown
+            // Support both 'markdown' and 'instructions' (for .github/copilot-instructions.md)
+            if (document.languageId === 'markdown' || document.languageId === 'instructions') {
+                const markdownBlock: CommentBlock = {
+                    text: text,
+                    startLine: 0,
+                    endLine: document.lineCount - 1,
+                    startChar: 0,
+                    endChar: document.lineAt(document.lineCount - 1).text.length,
+                    originalLines: text.split('\n')
+                };
+                this.parseMarkdownFile(text, markdownBlock, allDecorations, document, -1); // Pass -1 to include all lines
+            } else {
+                // Extract and process comments from code files
+                const comments = this.extractComments(text, document.languageId);
+                comments.forEach(comment => {
+                    this.parseMarkdownInComment(comment, allDecorations!, document, -1); // Pass -1 to include all lines
+                });
+            }
+            
+            this.cachedDecorations.set(docUri, allDecorations);
         }
 
+        // Filter decorations to exclude the active line
+        const filteredDecorations: Map<string, vscode.DecorationOptions[]> = new Map();
+        allDecorations.forEach((decorationList, type) => {
+            const filtered = decorationList.filter(decoration => {
+                const line = decoration.range.start.line;
+                return line !== activeLine;
+            });
+            filteredDecorations.set(type, filtered);
+        });
+
         // Apply decorations
-        decorations.forEach((ranges, type) => {
+        filteredDecorations.forEach((ranges, type) => {
             const decorationType = this.decorationTypes.get(type);
             if (decorationType) {
                 editor.setDecorations(decorationType, ranges);
@@ -261,6 +275,8 @@ export class MarkdownCommentProvider {
     }
 
     public forceUpdate(document: vscode.TextDocument): void {
+        // Clear cache to force re-parse
+        this.cachedDecorations.delete(document.uri.toString());
         // Reset the last active line to force a re-render
         this.lastActiveLine = -1;
         this.updateDecorations(document);
@@ -498,10 +514,24 @@ export class MarkdownCommentProvider {
         // Markdown files: full markdown support without comment-specific processing
         // NO gray color overlay, NO comment delimiter replacement
         
+        // Identify HTML comment regions to exclude from markdown processing
+        const htmlCommentRanges: Array<{start: number, end: number}> = [];
+        const htmlCommentPattern = /<!--[\s\S]*?-->/g;
+        let htmlMatch;
+        while ((htmlMatch = htmlCommentPattern.exec(text)) !== null) {
+            htmlCommentRanges.push({
+                start: htmlMatch.index,
+                end: htmlMatch.index + htmlMatch[0].length
+            });
+        }
+        
         // Identify code block regions to exclude from markdown processing
         const codeBlockRanges = this.getCodeBlockRanges(text);
         
-        // Apply syntax highlighting to code blocks
+        // Combine HTML comments and code blocks into exclusion ranges
+        const exclusionRanges = [...htmlCommentRanges, ...codeBlockRanges];
+        
+        // Apply syntax highlighting to code blocks (not HTML comments)
         this.applySyntaxHighlightingToCodeBlocks(text, comment, decorations, document, activeLine, codeBlockRanges);
         
         // Replace code block markers (```) with horizontal lines
@@ -509,15 +539,16 @@ export class MarkdownCommentProvider {
         
         // Parse markdown patterns and replace with formatted content
         // Process ALL inline formatting FIRST, before any headers or lists
-        this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine, codeBlockRanges);
-        this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, codeBlockRanges);
+        // Pass false for applyLineStartIndent since this is a pure markdown file, not a comment block
+        this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine, exclusionRanges, true, false);
+        this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, exclusionRanges, true, false);
         // Match single backticks but not triple backticks (code blocks) - [^`\n]+ prevents matching across lines
-        this.parseAndReplace(text, /(?<!`)`([^`\n]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, codeBlockRanges);
-        this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, codeBlockRanges);
+        this.parseAndReplace(text, /(?<!`)`([^`\n]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, exclusionRanges, true, false);
+        this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, exclusionRanges, true, false);
         
         // Process links and images (must be before lists to avoid conflicts)
-        this.parseLinks(text, comment, decorations, document, activeLine, codeBlockRanges);
-        this.parseImages(text, comment, decorations, document, activeLine, codeBlockRanges);
+        this.parseLinks(text, comment, decorations, document, activeLine, exclusionRanges);
+        this.parseImages(text, comment, decorations, document, activeLine, exclusionRanges);
         
         // Process task lists
         this.parseTaskLists(text, comment, decorations, document, activeLine);
@@ -1099,8 +1130,7 @@ export class MarkdownCommentProvider {
                             color: '#0066cc',
                             textDecoration: 'underline'
                         }
-                    },
-                    hoverMessage: new vscode.MarkdownString(`Link: [${linkText}](${url})`)
+                    }
                 });
                 decorations.set('code', decorationList);
             }
@@ -1235,7 +1265,8 @@ export class MarkdownCommentProvider {
         document: vscode.TextDocument,
         activeLine: number,
         codeBlockRanges: Array<{start: number, end: number}> = [],
-        applyGrayColor: boolean = true
+        applyGrayColor: boolean = true,
+        applyLineStartIndent: boolean = true
     ): void {
         let match;
         const decorationList = decorations.get(decorationType) || [];
@@ -1299,7 +1330,7 @@ export class MarkdownCommentProvider {
                                 backgroundColor: decorationType === 'code' ? 'var(--vscode-textCodeBlock-background)' : undefined,
                                 border: decorationType === 'code' ? '1px solid var(--vscode-textBlockQuote-border)' : undefined,
                                 margin: decorationType === 'code' ? '0px 2px' : 
-                                        isAtLineStart ? '0 2px 0 1ch' : undefined,  // Add 1ch left margin if at line start
+                                        (applyLineStartIndent && isAtLineStart) ? '0 2px 0 1ch' : undefined,  // Add 1ch left margin if at line start (only in code comments)
 
                             }
                         },
