@@ -4,12 +4,19 @@
 // ~~This should be strikethrough~~
 
 /* 
+this is a multi-line comment block
 # Multi-line Header
+# Another Header 1 to make sure the large font size does not overlap
 ## Header Level 2
 ### Header Level 3
+#### Header Level 4
+##### Header Level 5
+###### Header Level 6
+####### Header Level 7 (not standard, but for testing)
+Header Level 8 (no header support!)
+
 This is **bold** in a multi-line comment
-Testing *italic* and `code` here too
-## Header with **bold** text in the line
+## Header Level with **bold** text in the line
 
 ### List Examples
 
@@ -98,3 +105,15 @@ function testNewFeatures() {
     // Test Ctrl+Alt+M to toggle markdown rendering on/off
     console.log("Toggle test");
 }
+
+
+/*
+- [x] Completed task with [link](https://example.com)
+This is a link: [EnCiv](https://enciv.org) is a great resource for civic tech. 
+*/
+
+
+/*
+- [x] Completed task with [link](https://example.com)
+This is a link: [EnCiv](https://enciv.org) is a great resource for civic tech. 
+*/
