@@ -15,7 +15,7 @@ export function activate(context: vscode.ExtensionContext) {
 	const markdownProvider = new MarkdownCommentProvider();
 
 	// Register the decoration provider for all supported languages
-	const supportedLanguages = ['typescript', 'javascript', 'python', 'java', 'csharp', 'cpp', 'c', 'go', 'rust', 'php', 'markdown', 'instructions'];
+	const supportedLanguages = ['typescript', 'javascript', 'javascriptreact', 'typescriptreact', 'python', 'java', 'csharp', 'cpp', 'c', 'go', 'rust', 'php', 'markdown', 'instructions'];
 	
 	// Register text document change listeners for supported languages
 	// Only update when switching files or opening new files
@@ -69,7 +69,20 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.window.showInformationMessage(`Markdown in Comments: ${status}`);
 	});
 
+	// Register ESC key command to exit comment block text mode
+	const escapeCommand = vscode.commands.registerCommand('md-in-comments.escapeCommentBlock', () => {
+		const editor = vscode.window.activeTextEditor;
+		if (editor && markdownProvider.isEnabled) {
+			const currentLine = editor.selection.active.line;
+			// Only handle ESC if we're inside a comment block
+			if (markdownProvider.isInCommentBlock(editor.document, currentLine)) {
+				markdownProvider.exitCommentBlockTextMode(editor);
+			}
+		}
+	});
+
 	context.subscriptions.push(toggleCommand);
+	context.subscriptions.push(escapeCommand);
 }
 
 // This method is called when your extension is deactivated
