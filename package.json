@@ -24,6 +24,11 @@
         "command": "md-in-comments.toggle",
         "title": "Toggle Markdown in Comments",
         "category": "MD in Comments"
+      },
+      {
+        "command": "md-in-comments.escapeCommentBlock",
+        "title": "Exit Comment Block Text Mode",
+        "category": "MD in Comments"
       }
     ],
     "keybindings": [
@@ -32,6 +37,11 @@
         "key": "ctrl+shift+alt+m",
         "mac": "cmd+shift+alt+m",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "md-in-comments.escapeCommentBlock",
+        "key": "escape",
+        "when": "editorTextFocus && !suggestWidgetVisible && !findWidgetVisible && !inDebugRepl && !notificationCenterVisible && !parameterHintsVisible && !quickFixWidgetVisible && !renameInputVisible && !searchViewletVisible"
       }
     ],
     "configuration": {
@@ -44,7 +54,7 @@
         },
         "mdInComments.supportedLanguages": {
           "type": "array",
-          "default": ["typescript", "javascript", "python", "java", "csharp", "cpp", "c", "go", "rust", "php", "markdown"],
+          "default": ["typescript", "javascript", "javascriptreact", "typescriptreact", "python", "java", "csharp", "cpp", "c", "go", "rust", "php", "markdown", "instructions"],
           "description": "List of programming languages where markdown in comments should be rendered"
         }
       }
