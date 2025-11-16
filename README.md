@@ -19,9 +19,9 @@ Full markdown support in `/* ... */` and `"""..."""` comments:
 - Links with `[text](url)` syntax - displays clickable text with URL in hover
 - Images with `![alt](url)` syntax - displays alt text with 🖼️ icon
 - Code blocks with ` ```language` syntax and syntax highlighting
-- Horizontal lines for comment delimiters and code block markers
-- Automatic 1ch indentation for all content
-- Additional 1ch indentation for lists (2ch total)
+- Visual comment block borders with corner decorations
+- Automatic 1rem spacing between border and content
+- Additional indentation for lists
 
 ### Single-Line Comments
 Limited markdown support in `//` and `#` comments:
@@ -35,19 +35,28 @@ Full markdown rendering in `.md` files with all features enabled.
 
 🎨 **Visual Hierarchy**: Headers in block comments are distinguished by color intensity and styling:
 - H1: Darkest gray (#1a1a1a), bold, underlined, 150% size
-- H2: Dark gray (#333333), bold, 125% size
-- H3: Dark gray (#333333), bold, 100% size
-- H4-H7: Dark gray (#333333), bold, progressively smaller (95%, 90%, 85%, 80%)
+- H2: Dark gray (#333333), bold, underlined, 125% size
+- H3: Dark gray (#333333), bold, underlined, 100% size
+- H4-H7: Dark gray (#333333), bold, underlined, progressively smaller (95%, 90%, 85%, 80%)
 
-📊 **Syntax Highlighting**: Code blocks feature pattern-based syntax highlighting that adapts to your theme:
+�️ **Visual Borders**: Comment blocks are clearly delineated with:
+- 2px solid left border (#888888) for clear visual boundaries
+- Heavy box-drawing corner characters (┏ and ┗) connecting horizontal and vertical borders
+- Consistent border thickness throughout
+
+�📊 **Syntax Highlighting**: Code blocks feature pattern-based syntax highlighting that adapts to your theme:
 - Light themes: Colorful syntax highlighting (purple keywords, red strings, etc.)
 - Dark themes: White text for maximum readability
 - Automatically detects your VS Code theme
 
-✏️ **Smart Edit Mode**: Click on any line to see the raw markdown for editing, while other lines stay formatted
+✏️ **Smart Edit Mode**: 
+- Click on any line in a comment block to switch the **entire block** to raw text for editing
+- Press **ESC** while in a comment block to exit text mode and return to rendered markdown
+- All other lines stay formatted while you edit
 
 🔧 **Multi-language Support**: Works with popular programming languages including:
 - TypeScript/JavaScript
+- JSX/TSX (React)
 - Python
 - Java
 - C#
@@ -97,6 +106,10 @@ The extension automatically detects and renders the markdown formatting. Click o
 * `MD in Comments: Toggle`: Enable or disable markdown rendering
   - Keyboard shortcut: `Ctrl+Shift+Alt+M` (Windows/Linux) or `Cmd+Shift+Alt+M` (Mac)
 
+* `MD in Comments: Exit Comment Block Text Mode`: Return to markdown rendering from text editing mode
+  - Keyboard shortcut: `ESC` (when cursor is inside a comment block)
+  - Only works when inside a comment block - doesn't interfere with other ESC key uses
+
 ## Supported Markdown Syntax
 
 ### ✅ Fully Supported (in block comments)
@@ -135,10 +148,26 @@ The extension automatically detects and renders the markdown formatting. Click o
 - Code blocks inherit VS Code's comment color (typically green) with syntax highlighting overlaid
 - Images only show alt text, not actual images (VS Code API limitation)
 - Links are not directly clickable in rendered mode (click line to edit, then Ctrl+Click URL)
+- ESC key in comment blocks exits text mode - doesn't interfere with autocomplete, find, or other ESC uses
 
 ## Release Notes
 
-### 0.0.4 (Current)
+### 0.0.5 (Current)
+
+- **Visual Borders**: Added 2px solid left border to comment blocks with box-drawing corner characters (┏ and ┗)
+- **Block-Level Edit Mode**: Clicking inside a comment block now switches the entire block to text mode for easier editing
+- **ESC Key Support**: Press ESC while in a comment block to exit text mode and return to rendered markdown
+- **JSX/TSX Support**: Added automatic markdown rendering for React JSX/TSX files
+- **All Headers Underlined**: Headers 2-7 now include underlines like H1
+- **Improved Spacing**: Fixed spacing consistency for markdown at line start and between border and content
+- **Bug Fixes**: 
+  - Fixed code blocks in README showing markdown rendering
+  - Fixed asterisk-only lines showing bullets
+  - Fixed toggle not re-rendering immediately
+  - Fixed markdown files not rendering when clicking
+  - Removed duplicate vertical bar artifacts
+
+### 0.0.4
 
 - Improved performance: Caching system prevents re-rendering entire document when clicking between lines
 - Fixed bold/italic/code text spacing issues with negative letter-spacing on hidden text
