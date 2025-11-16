@@ -59,6 +59,7 @@ export class MarkdownCommentProvider {
     private readonly debounceDelay = 300; // milliseconds
     private lastActiveLine: number = -1;
     private cachedDecorations: Map<string, Map<string, vscode.DecorationOptions[]>> = new Map(); // Cache decorations by document URI
+    private cachedCommentBlocks: Map<string, CommentBlock[]> = new Map(); // Cache comment blocks by document URI
 
     constructor() {
         this.initializeDecorationTypes();
@@ -71,13 +72,69 @@ export class MarkdownCommentProvider {
     public toggle(): void {
         this._isEnabled = !this._isEnabled;
         if (this._isEnabled) {
-            // Re-apply decorations to all visible editors
+            // Re-apply decorations to all visible editors with force update
             vscode.window.visibleTextEditors.forEach(editor => {
-                this.updateDecorations(editor.document);
+                this.forceUpdate(editor.document);
             });
         } else {
             // Clear all decorations
             this.clearAllDecorations();
+        }
+    }
+
+    /**
+     * Check if the current cursor position is inside a comment block
+     * @param document The document to check
+     * @param line The line number to check
+     * @returns true if the line is inside a comment block (and not a markdown file)
+     */
+    public isInCommentBlock(document: vscode.TextDocument, line: number): boolean {
+        // Don't treat markdown files as comment blocks for ESC key handling
+        if (document.languageId === 'markdown' || document.languageId === 'instructions') {
+            return false;
+        }
+
+        const docUri = document.uri.toString();
+        const commentBlocks = this.cachedCommentBlocks.get(docUri);
+        
+        if (!commentBlocks) {
+            return false;
+        }
+
+        // Check if the line is within any comment block
+        for (const block of commentBlocks) {
+            if (line >= block.startLine && line <= block.endLine) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Exit comment block text mode by moving cursor outside the block
+     * @param editor The text editor
+     */
+    public exitCommentBlockTextMode(editor: vscode.TextEditor): void {
+        const document = editor.document;
+        const currentLine = editor.selection.active.line;
+        const docUri = document.uri.toString();
+        const commentBlocks = this.cachedCommentBlocks.get(docUri);
+
+        if (!commentBlocks) {
+            return;
+        }
+
+        // Find the comment block containing the cursor
+        for (const block of commentBlocks) {
+            if (currentLine >= block.startLine && currentLine <= block.endLine) {
+                // Move cursor to the line after the comment block
+                const newPosition = new vscode.Position(block.endLine + 1, 0);
+                editor.selection = new vscode.Selection(newPosition, newPosition);
+                // Trigger decoration update
+                this.updateDecorations(document);
+                return;
+            }
         }
     }
 
@@ -88,8 +145,13 @@ export class MarkdownCommentProvider {
         this.decorationTypes.set('code', vscode.window.createTextEditorDecorationType({}));
         this.decorationTypes.set('strikethrough', vscode.window.createTextEditorDecorationType({}));
         
-        // Dedicated decoration type for line indentation
-        this.decorationTypes.set('indent', vscode.window.createTextEditorDecorationType({}));
+        // Dedicated decoration type for line indentation with vertical bar via border
+        this.decorationTypes.set('indent', vscode.window.createTextEditorDecorationType({
+            isWholeLine: true,
+            borderWidth: '0 0 0 2px',
+            borderStyle: 'solid', 
+            borderColor: '#888888'
+        }));
         
         // Header decorations with actual styling - darkest to lighter gray tones
         // Base gray reduced by 20% (from #808080 to #666666)
@@ -101,32 +163,33 @@ export class MarkdownCommentProvider {
         this.decorationTypes.set('header2', vscode.window.createTextEditorDecorationType({
             color: '#333333',  // Dark gray (was #505050, now darker)
             fontWeight: 'bold',
-            textDecoration: 'none; font-size: 1.25em'  // 125% size
+            textDecoration: 'underline; font-size: 1.25em'  // 125% size with underline
         }));
         this.decorationTypes.set('header3', vscode.window.createTextEditorDecorationType({
             color: '#333333',  // Medium gray (was #888888, now darker - this is base -20%)
             fontWeight: 'bold',
+            textDecoration: 'underline'
         }));
         // Headers 4-7 use same format as Header 3 but with smaller font sizes
         this.decorationTypes.set('header4', vscode.window.createTextEditorDecorationType({
             color: '#333333',
             fontWeight: 'bold',
-            textDecoration: 'none; font-size: 0.95em'  // 95% of normal size
+            textDecoration: 'underline; font-size: 0.95em'  // 95% of normal size with underline
         }));
         this.decorationTypes.set('header5', vscode.window.createTextEditorDecorationType({
             color: '#333333',
             fontWeight: 'bold',
-            textDecoration: 'none; font-size: 0.9em'  // 90% of normal size
+            textDecoration: 'underline; font-size: 0.9em'  // 90% of normal size with underline
         }));
         this.decorationTypes.set('header6', vscode.window.createTextEditorDecorationType({
             color: '#333333',
             fontWeight: 'bold',
-            textDecoration: 'none; font-size: 0.85em'  // 85% of normal size
+            textDecoration: 'underline; font-size: 0.85em'  // 85% of normal size with underline
         }));
         this.decorationTypes.set('header7', vscode.window.createTextEditorDecorationType({
             color: '#333333',
             fontWeight: 'bold',
-            textDecoration: 'none; font-size: 0.8em'  // 80% of normal size
+            textDecoration: 'underline; font-size: 0.8em'  // 80% of normal size with underline
         }));
 
         // Gray color for comment block content - made darker
@@ -210,9 +273,10 @@ export class MarkdownCommentProvider {
         // Check if we have cached decorations for this document
         const docUri = document.uri.toString();
         let allDecorations = this.cachedDecorations.get(docUri);
+        let commentBlocks = this.cachedCommentBlocks.get(docUri);
         
         // If no cache, parse and cache
-        if (!allDecorations) {
+        if (!allDecorations || !commentBlocks) {
             allDecorations = new Map();
             this.decorationTypes.forEach((_, key) => {
                 allDecorations!.set(key, []);
@@ -231,23 +295,44 @@ export class MarkdownCommentProvider {
                     endChar: document.lineAt(document.lineCount - 1).text.length,
                     originalLines: text.split('\n')
                 };
+                commentBlocks = [markdownBlock];
                 this.parseMarkdownFile(text, markdownBlock, allDecorations, document, -1); // Pass -1 to include all lines
             } else {
                 // Extract and process comments from code files
-                const comments = this.extractComments(text, document.languageId);
-                comments.forEach(comment => {
+                commentBlocks = this.extractComments(text, document.languageId);
+                commentBlocks.forEach(comment => {
                     this.parseMarkdownInComment(comment, allDecorations!, document, -1); // Pass -1 to include all lines
                 });
             }
             
             this.cachedDecorations.set(docUri, allDecorations);
+            this.cachedCommentBlocks.set(docUri, commentBlocks);
         }
 
-        // Filter decorations to exclude the active line
+        // Find which comment block contains the active line
+        // Only apply block-level exclusion for code files with comment blocks,
+        // not for markdown files where the entire file is one "block"
+        let activeCommentBlock: CommentBlock | null = null;
+        const isMarkdownFile = document.languageId === 'markdown' || document.languageId === 'instructions';
+        if (!isMarkdownFile) {
+            for (const block of commentBlocks) {
+                if (activeLine >= block.startLine && activeLine <= block.endLine) {
+                    activeCommentBlock = block;
+                    break;
+                }
+            }
+        }
+
+        // Filter decorations to exclude all lines in the active comment block
         const filteredDecorations: Map<string, vscode.DecorationOptions[]> = new Map();
         allDecorations.forEach((decorationList, type) => {
             const filtered = decorationList.filter(decoration => {
                 const line = decoration.range.start.line;
+                // If there's an active comment block (in code files), exclude all lines in it
+                if (activeCommentBlock) {
+                    return line < activeCommentBlock.startLine || line > activeCommentBlock.endLine;
+                }
+                // Otherwise, just exclude the active line (for non-comment lines and markdown files)
                 return line !== activeLine;
             });
             filteredDecorations.set(type, filtered);
@@ -277,6 +362,7 @@ export class MarkdownCommentProvider {
     public forceUpdate(document: vscode.TextDocument): void {
         // Clear cache to force re-parse
         this.cachedDecorations.delete(document.uri.toString());
+        this.cachedCommentBlocks.delete(document.uri.toString());
         // Reset the last active line to force a re-render
         this.lastActiveLine = -1;
         this.updateDecorations(document);
@@ -551,10 +637,10 @@ export class MarkdownCommentProvider {
         this.parseImages(text, comment, decorations, document, activeLine, exclusionRanges);
         
         // Process task lists
-        this.parseTaskLists(text, comment, decorations, document, activeLine);
+        this.parseTaskLists(text, comment, decorations, document, activeLine, exclusionRanges);
         
         // Process lists (bullets and numbered)
-        this.parseLists(text, comment, decorations, document, activeLine);
+        this.parseLists(text, comment, decorations, document, activeLine, exclusionRanges);
         
         // Process headers LAST (this will only hide ## markers and add header styling)
         this.parseHeadersWithNestedFormatting(text, comment, decorations, document, activeLine);
@@ -587,13 +673,16 @@ export class MarkdownCommentProvider {
                     range: new vscode.Range(startPos, endPos)
                 });
                 
-                // Add horizontal line
+                // Add horizontal line at position 0 to connect with vertical border
+                // Use box-drawing character for top-left corner connection
+                const lineStartPos = new vscode.Position(comment.startLine, 0);
                 decorations.get('bold')?.push({
-                    range: new vscode.Range(startPos, startPos),
+                    range: new vscode.Range(lineStartPos, lineStartPos),
                     renderOptions: {
                         before: {
-                            contentText: '━'.repeat(80),
-                            color: 'var(--vscode-textSeparator-foreground)'
+                            contentText: '┏' + '━'.repeat(79),  // Top-left corner with heavy horizontal line (matches 2px border)
+                            color: '#888888',  // Match vertical border color
+                            margin: '0 0 0 -3px'  // Pull left to align with border
                         }
                     }
                 });
@@ -614,13 +703,16 @@ export class MarkdownCommentProvider {
                     range: new vscode.Range(startPos, endPos)
                 });
                 
-                // Add horizontal line
+                // Add horizontal line at position 0 to connect with vertical border
+                // Use box-drawing character for bottom-left corner connection
+                const lineStartPos = new vscode.Position(comment.endLine, 0);
                 decorations.get('bold')?.push({
-                    range: new vscode.Range(startPos, startPos),
+                    range: new vscode.Range(lineStartPos, lineStartPos),
                     renderOptions: {
                         before: {
-                            contentText: '━'.repeat(80),
-                            color: 'var(--vscode-textSeparator-foreground)'
+                            contentText: '┗' + '━'.repeat(79),  // Bottom-left corner with heavy horizontal line (matches 2px border)
+                            color: '#888888',  // Match vertical border color
+                            margin: '0 0 0 -3px'  // Pull left to align with border
                         }
                     }
                 });
@@ -654,17 +746,17 @@ export class MarkdownCommentProvider {
                 continue;
             }
             
-            // Match lines that start with optional whitespace, then "* " 
-            // This handles both " * " and "* " patterns
-            const asteriskMatch = line.match(/^(\s*)\*\s/);
+            // Match lines that start with optional whitespace, then "*" optionally followed by space
+            // This handles " * ", "* ", " *", and "*" patterns (JavaDoc-style comment formatting)
+            const asteriskMatch = line.match(/^(\s*)\*(\s?)$/);
             if (asteriskMatch && asteriskMatch.index !== undefined) {
                 const startChar = asteriskMatch.index; // Start from beginning (includes whitespace)
-                const endChar = startChar + asteriskMatch[0].length; // Full match length
+                const endChar = startChar + asteriskMatch[0].length; // Full match length (entire line)
                 
                 const startPos = new vscode.Position(lineNumber, startChar);
                 const endPos = new vscode.Position(lineNumber, endChar);
                 
-                // Hide the entire prefix including whitespace: " * " or "* "
+                // Hide the entire line if it's just whitespace + asterisk + optional space
                 replaceList.push({
                     range: new vscode.Range(startPos, endPos)
                 });
@@ -679,6 +771,24 @@ export class MarkdownCommentProvider {
                         }
                     }
                 });
+                continue; // Skip to next line
+            }
+            
+            // Match lines with content after the asterisk: " * text" or "* text"
+            const asteriskWithContentMatch = line.match(/^(\s*)\*\s/);
+            if (asteriskWithContentMatch && asteriskWithContentMatch.index !== undefined) {
+                const startChar = asteriskWithContentMatch.index;
+                const endChar = startChar + asteriskWithContentMatch[0].length;
+                
+                const startPos = new vscode.Position(lineNumber, startChar);
+                const endPos = new vscode.Position(lineNumber, endChar);
+                
+                // Hide just the prefix: " * " or "* "
+                replaceList.push({
+                    range: new vscode.Range(startPos, endPos)
+                });
+                
+                // No need to add indent here since addLineIndentation handles it globally
             }
         }
         
@@ -692,8 +802,7 @@ export class MarkdownCommentProvider {
         document: vscode.TextDocument,
         activeLine: number
     ): void {
-        // Add 1ch indent to the start of each non-empty line in the comment block
-        // Use dedicated 'indent' decoration type to avoid conflicts
+        // Add vertical bar at the leftmost position for all non-empty lines in the comment block
         const indentList = decorations.get('indent') || [];
         
         for (let lineNum = comment.startLine; lineNum <= comment.endLine; lineNum++) {
@@ -705,52 +814,25 @@ export class MarkdownCommentProvider {
             const lineText = document.lineAt(lineNum).text;
             const trimmedLine = lineText.trim();
             
-            // Skip empty lines and comment delimiter lines
-            if (trimmedLine.length === 0 || trimmedLine === '/*' || trimmedLine === '*/' || 
+            // Skip comment delimiter lines only
+            if (trimmedLine === '/*' || trimmedLine === '*/' || 
                 trimmedLine.startsWith('/*') || trimmedLine.endsWith('*/')) {
                 continue;
             }
             
-            // Find the first non-whitespace character position
-            const firstCharIndex = lineText.search(/\S/);
-            if (firstCharIndex === -1) {
-                continue;
-            }
+            // Always place the vertical bar at position 0 (leftmost) for all lines including empty
+            // Use whole line range so the border appears on the entire line
+            // Add space at position 0 to create gap between border and text
+            const startPos = new vscode.Position(lineNum, 0);
+            const endPos = new vscode.Position(lineNum, Number.MAX_SAFE_INTEGER);
             
-            // Skip lines with asterisk prefix (" * " or "* ") - handled by hideAsteriskPrefixes
-            const afterFirstChar = lineText.substring(firstCharIndex);
-            if (/^\*\s/.test(afterFirstChar) && !/^\*\*/.test(afterFirstChar)) {
-                continue;
-            }
-            
-            // Skip list items (bullets with dash, numbers, tasks) - they have their own indentation
-            // Note: We check for "- " (dash) not "* " (asterisk) since asterisk is comment prefix
-            if (/^-\s/.test(trimmedLine) || /^\d+\.\s/.test(trimmedLine) || 
-                /^-\s*\[([ xX])\]/.test(trimmedLine)) {
-                continue;
-            }
-            
-            // Skip code block delimiters
-            if (/^```/.test(trimmedLine)) {
-                continue;
-            }
-            
-            // Skip lines that start with markdown syntax (bold, italic, code, strikethrough)
-            // These are handled by parseAndReplace which adds indent when rendering
-            if (/^\*\*/.test(trimmedLine) || /^~~/.test(trimmedLine) || /^`/.test(trimmedLine) ||
-                (/^\*/.test(trimmedLine) && !/^\*\*/.test(trimmedLine) && !/^\*\s/.test(trimmedLine))) {
-                continue;
-            }
-            
-            const startPos = new vscode.Position(lineNum, firstCharIndex);
-            
-            // Add invisible character with margin to create indent
+            // Add vertical bar decoration to entire line with 1rem space before content
             indentList.push({
-                range: new vscode.Range(startPos, startPos),
+                range: new vscode.Range(startPos, endPos),
                 renderOptions: {
                     before: {
-                        contentText: '',
-                        margin: '0 0 0 1ch'
+                        contentText: '  ',  // Two spaces for better visibility
+                        margin: '0 0 0 1rem'  // 1rem left margin
                     }
                 }
             });
@@ -980,7 +1062,8 @@ export class MarkdownCommentProvider {
         comment: CommentBlock,
         decorations: Map<string, vscode.DecorationOptions[]>,
         document: vscode.TextDocument,
-        activeLine: number
+        activeLine: number,
+        exclusionRanges: Array<{start: number, end: number}> = []
     ): void {
         // Match unordered list items: - item or * item (but not ** for bold)
         const bulletPattern = /^(\s*)[-*]\s+(.*)$/gm;
@@ -995,11 +1078,28 @@ export class MarkdownCommentProvider {
         // Process bullet points
         bulletPattern.lastIndex = 0;
         while ((match = bulletPattern.exec(text)) !== null) {
+            // Check if match is within any exclusion range (code blocks, HTML comments)
+            const matchStart = match.index;
+            const matchEnd = matchStart + match[0].length;
+            const isInExcludedRange = exclusionRanges.some(range => 
+                matchStart >= range.start && matchStart < range.end
+            );
+            
+            if (isInExcludedRange) {
+                continue;
+            }
+            
             const indent = match[1] || '';
             const content = match[2];
             
             // Skip if this is a task list item - check the content for [ ] or [x]
             if (/^\[([ xX])\]/.test(content)) {
+                continue;
+            }
+            
+            // Skip if this is just a comment delimiter line (empty or whitespace-only content)
+            // These are asterisk prefixes in JavaDoc-style comments, not actual list items
+            if (!content || content.trim() === '') {
                 continue;
             }
             
@@ -1038,6 +1138,17 @@ export class MarkdownCommentProvider {
         // Process numbered lists
         numberedPattern.lastIndex = 0;
         while ((match = numberedPattern.exec(text)) !== null) {
+            // Check if match is within any exclusion range (code blocks, HTML comments)
+            const matchStart = match.index;
+            const matchEnd = matchStart + match[0].length;
+            const isInExcludedRange = exclusionRanges.some(range => 
+                matchStart >= range.start && matchStart < range.end
+            );
+            
+            if (isInExcludedRange) {
+                continue;
+            }
+            
             const indent = match[1] || '';
             const number = match[2];
             const content = match[3];
@@ -1206,7 +1317,8 @@ export class MarkdownCommentProvider {
         comment: CommentBlock,
         decorations: Map<string, vscode.DecorationOptions[]>,
         document: vscode.TextDocument,
-        activeLine: number
+        activeLine: number,
+        exclusionRanges: Array<{start: number, end: number}> = []
     ): void {
         // Match task list items: - [ ] unchecked or - [x] checked
         const taskPattern = /^(\s*)-\s+\[([ xX])\]\s+(.*)$/gm;
@@ -1215,6 +1327,17 @@ export class MarkdownCommentProvider {
         
         taskPattern.lastIndex = 0;
         while ((match = taskPattern.exec(text)) !== null) {
+            // Check if match is within any exclusion range (code blocks, HTML comments)
+            const matchStart = match.index;
+            const matchEnd = matchStart + match[0].length;
+            const isInExcludedRange = exclusionRanges.some(range => 
+                matchStart >= range.start && matchStart < range.end
+            );
+            
+            if (isInExcludedRange) {
+                continue;
+            }
+            
             const indent = match[1] || '';
             const checkState = match[2];
             const content = match[3];
@@ -1330,7 +1453,7 @@ export class MarkdownCommentProvider {
                                 backgroundColor: decorationType === 'code' ? 'var(--vscode-textCodeBlock-background)' : undefined,
                                 border: decorationType === 'code' ? '1px solid var(--vscode-textBlockQuote-border)' : undefined,
                                 margin: decorationType === 'code' ? '0px 2px' : 
-                                        (applyLineStartIndent && isAtLineStart) ? '0 2px 0 1ch' : undefined,  // Add 1ch left margin if at line start (only in code comments)
+                                        (isAtLineStart && applyLineStartIndent) ? '0 0 0 1rem' : undefined,  // Add 1rem left margin if at line start for vertical bar spacing
 
                             }
                         },
