@@ -13,7 +13,7 @@ this is a multi-line comment block
 ##### Header Level 5
 ###### Header Level 6
 ####### Header Level 7 (not standard, but for testing)
-Header Level 8 (no header support!)
+######## Header Level 8 (no header support!)
 
 This is **bold** in a multi-line comment
 ## Header Level with **bold** text in the line
@@ -117,3 +117,15 @@ This is a link: [EnCiv](https://enciv.org) is a great resource for civic tech.
 - [x] Completed task with [link](https://example.com)
 This is a link: [EnCiv](https://enciv.org) is a great resource for civic tech. 
 */
+
+/**
+ * Systemic observations
+ *
+ * 1) If the best (lowest) statement gets put into a group, and that group doesn't win the rankings in that round, then it dissapears. Observed when proxy users randomly choosse the top of a group.
+ *
+ *
+ * Messy Edge Conditions to consider
+ *
+ * 1) A user is shown a group of items, but then disappears and never groups/ranks them
+ *
+ */
