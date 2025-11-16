@@ -40,7 +40,7 @@ source $NVS_HOME/nvs.sh use $NODE_VERSION
 - **Keyboard Toggle**: Ctrl+Shift+Alt+M (Windows/Linux), Cmd+Shift+Alt+M (Mac)
 - **Performance**: Caching system for efficient rendering in large files
 - **HTML Comments**: Properly excluded from markdown rendering
-- **Language Support**: TypeScript, JavaScript, Python, Java, C#, C++, C, Go, Rust, PHP, Markdown, Instructions
+- **Language Support**: TypeScript, JavaScript, JSX, TSX, Python, Java, C#, C++, C, Go, Rust, PHP, Markdown, Instructions
 
 ## Development Guidelines
 - Use TypeScript for extension development
