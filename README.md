@@ -5,7 +5,8 @@ A Visual Studio Code extension that renders markdown formatting within comments 
 As we do more with AI, markdown documentation is everywhere. Let's make that more readable, and just put the documentation in the code so it's not spread out into multiple locations that need to be kept in sync.
 
 **Your Code Can Look Like This:**
-![VSCode editor view using MD in Comments](example-authenticatedUser.png)
+![VSCode editor in Dark mode view using MD in Comments](image-3.png)
+
 And when you click in the code block, it reverts to code and you can edit it.  Hit `ESC` to get back to the MD view. `Ctrl+Shift+Alt+M` also toggles you in and out of MD view or code.
 
 This extension is itself AI generated. I consider myself a good JS programmer, but it would have been a big investment in time to figure out all the VSCode APIs and how to hack them to make it look like MD. That said, the code is AI generated and there may still be bugs.
