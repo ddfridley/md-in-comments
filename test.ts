@@ -129,3 +129,75 @@ This is a link: [EnCiv](https://enciv.org) is a great resource for civic tech.
  * 1) A user is shown a group of items, but then disappears and never groups/ranks them
  *
  */
+
+import { SessionToken, AuthenticationError, RateLimitError } from './types';
+import { validateCredentials, generateToken } from './auth-utils';
+import { logger } from './logger';
+
+/**
+ * ## authenticateUser(username, password, [options]) ⇒ {Promise<SessionToken>}
+ * Validates user credentials and generates a secure session token.
+ * 
+ * **Kind:** async function  
+ * **Access:** public
+ * 
+ * ## Parameters
+ * - `username` **{string}** - The user's login identifier
+ * - `password` **{string}** - The user's password (will be hashed)
+ * - `options` **{Object}** *(optional)* - Authentication options
+ *   - `rememberMe` **{boolean}** - Keep session active (default: false)
+ *   - `ipAddress` **{string}** - Client IP for security logging
+ * 
+ * ## Returns
+ * **{Promise<SessionToken>}** - Object containing token and expiration
+ * 
+ * ## Throws
+ * - `AuthenticationError` - When credentials are invalid
+ * - `RateLimitError` - When too many attempts are made
+ * 
+ * ## Example
+ * ```javascript
+ * try {
+ *   const session = await authenticateUser('john.doe', 'secret123', {
+ *     rememberMe: true,
+ *     ipAddress: '192.168.1.1'
+ *   });
+ *   console.log('Token:', session.token);
+ * } catch (error) {
+ *   console.error('Auth failed:', error.message);
+ * }
+ * ```
+ * 
+ * ## Implementation Details
+ * The authentication process follows these steps:
+ * 1. **Rate Limiting**: Checks attempts from IP address (max 5 per minute)
+ * 2. **Credential Hash**: Uses bcrypt with salt rounds of 12
+ * 3. **Database Lookup**: Queries user table with prepared statements
+ * 4. **Token Generation**: Creates JWT with HS256 algorithm
+ *    - Payload includes: userId, username, timestamp, rememberMe flag
+ *    - Expiration: 1 hour (normal) or 30 days (rememberMe)
+ * 5. **Session Storage**: Saves to Redis with automatic expiration
+ * 6. **Audit Logging**: Records attempt with IP, timestamp, and result
+ * 
+ * **Performance Considerations:**
+ * - Average execution time: ~150ms (includes bcrypt)
+ * - Redis lookup adds ~5ms overhead
+ * - Consider caching user salt for high-traffic scenarios
+ * 
+ * **Security Notes:**
+ * - Password is never stored in plaintext or logs
+ * - Failed attempts increment rate limiter
+ * - Session tokens are cryptographically signed
+ * - IP address is hashed before storage in audit log
+ * 
+ * ## See Also
+ * - [generateToken](#) - Creates JWT tokens
+ * - [validateSession](#) - Checks token validity
+ * - [Security Docs](https://example.com/security) - Authentication best practices
+ */
+async function authenticateUser(username, password, options = {}) {
+    // implementation
+}
+
+// This is **bold** and *italic* with `code`
+const x = 5;  // Trailing comment with **formatting**

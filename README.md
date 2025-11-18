@@ -1,6 +1,21 @@
 # MD in Comments
 
-A Visual Studio Code extension that renders markdown formatting within comments in code files and markdown files, making documentation more readable and visually appealing.
+A Visual Studio Code extension that renders markdown formatting within comments in code files and markdown files, making documentation in code more readable and visually appealing.
+
+As we do more with AI, markdown documentation is everywhere. Let's make that more readable, and just put the documentation in the code so it's not spread out into multiple locations that need to be kept in sync.
+
+**Your Code Can Look Like This:**
+![VSCode editor view using MD in Comments](example-authenticatedUser.png)
+And when you click in the code block, it reverts to code and you can edit it.  Hit `ESC` to get back to the MD view. `Ctrl+Shift+Alt+M` also toggles you in and out of MD view or code.
+
+This extension is itself AI generated. I consider myself a good JS programmer, but it would have been a big investment in time to figure out all the VSCode APIs and how to hack them to make it look like MD. That said, the code is AI generated and there may still be bugs.
+
+**I wish that one day VSCode will provide an API to allow an extension to replace a range of code lines, with rendered HTML.** But for now, this extension is doing a lot just by manipulating the decorations on the lines. The limitations are that we can't change the line height, we can't join or separate lines as true MD can, and no images. Still, it's much nicer to read.
+
+## Tips
+
+💡 Use Word Wrap `[View][Word Wrap]` when using this extension so lines wrap at the edge of the window.
+
 
 ## Features
 
@@ -91,6 +106,147 @@ Write multi-line comments with full markdown support:
  */
 ```
 
+### Function Documentation Template
+
+Here is a proposed markdown template for documenting functions - easily convertible to JSDoc. Nothing in this extension requires you to do it this way. It is provided to promote consistency. All things are optional. 
+
+```typescript
+/**
+ * ## functionName(param1, param2) ⇒ {ReturnType}
+ * Brief description of what the function does.
+ * 
+ * **Kind:** function | method | async function | constructor  
+ * **Access:** public | private | protected
+ * 
+ * ## Parameters
+ * - `paramName` **{type}** - Description of the parameter
+ *   - `paramName.nestedKey` **{type}** - Description of nested property
+ *   - `paramName.anotherKey` **{type}** - Description of another nested property
+ * - `optionalParam` **{type}** *(optional)* - Description with default behavior
+ * 
+ * ## Returns
+ * **{returnType}** - Description of return value
+ * 
+ * ## Throws
+ * - `ErrorType` - When this error occurs
+ * 
+ * ## Example
+ * ```javascript
+ * const result = functionName(param1, param2);
+ * ```
+ * 
+ * ## Implementation Details
+ * Technical description of how the function works internally:
+ * 1. **Step One**: What happens first
+ * 2. **Step Two**: Next operation with technical details
+ * 3. **Step Three**: Final operation
+ * 
+ * **Performance Considerations:**
+ * - Execution time: ~Xms
+ * - Memory usage notes
+ * - Optimization tips
+ * 
+ * **Technical Notes:**
+ * - Algorithm or data structure used
+ * - Important implementation details
+ * - Edge cases handled
+ * 
+ * ## See Also
+ * - [Related Function](#) - Brief description
+ * - [Documentation](https://example.com) - External reference
+ */
+function functionName(paramName, optionalParam = null) {
+    // implementation
+}
+```
+
+**Conversion to JSDoc:**
+- `## functionName(params) ⇒ {type}` → `@function functionName` with signature
+- `**Kind:**` → `@function`, `@method`, `@async`, `@constructor`
+- `**Access:**` → `@public`, `@private`, `@protected`
+- `## Parameters` section → `@param {type} paramName - description`
+- `## Returns` → `@returns {type} description`
+- `## Throws` → `@throws {ErrorType} description`
+- `## Example` → `@example` with code block
+- `## Implementation Details` → `@description` (detailed technical section)
+- `## See Also` → `@see` tags
+
+
+**Real-World Example:**
+
+```typescript
+import { SessionToken, AuthenticationError, RateLimitError } from './types';
+import { validateCredentials, generateToken } from './auth-utils';
+import { logger } from './logger';
+
+/**
+ * ## authenticateUser(username, password, [options]) ⇒ {Promise<SessionToken>}
+ * Validates user credentials and generates a secure session token.
+ * 
+ * **Kind:** async function  
+ * **Access:** public
+ * 
+ * ## Parameters
+ * - `username` **{string}** - The user's login identifier
+ * - `password` **{string}** - The user's password (will be hashed)
+ * - `options` **{Object}** *(optional)* - Authentication options
+ *   - `rememberMe` **{boolean}** - Keep session active (default: false)
+ *   - `ipAddress` **{string}** - Client IP for security logging
+ * 
+ * ## Returns
+ * **{Promise<SessionToken>}** - Object containing token and expiration
+ * 
+ * ## Throws
+ * - `AuthenticationError` - When credentials are invalid
+ * - `RateLimitError` - When too many attempts are made
+ * 
+ * ## Example
+ * ```javascript
+ * try {
+ *   const session = await authenticateUser('john.doe', 'secret123', {
+ *     rememberMe: true,
+ *     ipAddress: '192.168.1.1'
+ *   });
+ *   console.log('Token:', session.token);
+ * } catch (error) {
+ *   console.error('Auth failed:', error.message);
+ * }
+ * ```
+ * 
+ * ## Implementation Details
+ * The authentication process follows these steps:
+ * 1. **Rate Limiting**: Checks attempts from IP address (max 5 per minute)
+ * 2. **Credential Hash**: Uses bcrypt with salt rounds of 12
+ * 3. **Database Lookup**: Queries user table with prepared statements
+ * 4. **Token Generation**: Creates JWT with HS256 algorithm
+ *    - Payload includes: userId, username, timestamp, rememberMe flag
+ *    - Expiration: 1 hour (normal) or 30 days (rememberMe)
+ * 5. **Session Storage**: Saves to Redis with automatic expiration
+ * 6. **Audit Logging**: Records attempt with IP, timestamp, and result
+ * 
+ * **Performance Considerations:**
+ * - Average execution time: ~150ms (includes bcrypt)
+ * - Redis lookup adds ~5ms overhead
+ * - Consider caching user salt for high-traffic scenarios
+ * 
+ * **Security Notes:**
+ * - Password is never stored in plaintext or logs
+ * - Failed attempts increment rate limiter
+ * - Session tokens are cryptographically signed
+ * - IP address is hashed before storage in audit log
+ * 
+ * ## See Also
+ * - [generateToken](#) - Creates JWT tokens
+ * - [validateSession](#) - Checks token validity
+ * - [Security Docs](https://example.com/security) - Authentication best practices
+ */
+async function authenticateUser(username, password, options = {}) {
+    // implementation
+}
+```
+### Which looks like this in VSCode:
+![VSCode editor view using MD in Comments](example-authenticatedUser.png)
+
 ### Single-Line Comments
 Use limited markdown formatting in single-line comments:
 
@@ -98,6 +254,8 @@ Use limited markdown formatting in single-line comments:
 // This is **bold** and *italic* with `code`
 const x = 5;  // Trailing comment with **formatting**
 ```
+**Which Look Like This**
+![code with comments in markdown rendered](image.png)
 
 The extension automatically detects and renders the markdown formatting. Click on any line to edit the raw markdown.
 
