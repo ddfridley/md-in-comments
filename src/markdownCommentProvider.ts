@@ -69,6 +69,18 @@ export class MarkdownCommentProvider {
         return this._isEnabled;
     }
 
+    public reinitializeForTheme(): void {
+        // Dispose existing decoration types
+        this.decorationTypes.forEach(decoration => decoration.dispose());
+        this.decorationTypes.clear();
+        
+        // Reinitialize with theme-aware colors
+        this.initializeDecorationTypes();
+        
+        // Clear caches to force re-decoration
+        this.cachedDecorations.clear();
+    }
+
     public toggle(): void {
         this._isEnabled = !this._isEnabled;
         if (this._isEnabled) {
@@ -145,56 +157,110 @@ export class MarkdownCommentProvider {
         this.decorationTypes.set('code', vscode.window.createTextEditorDecorationType({}));
         this.decorationTypes.set('strikethrough', vscode.window.createTextEditorDecorationType({}));
         
+        // Get theme-aware colors
+        const isDark = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark || 
+                       vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast;
+        
         // Dedicated decoration type for line indentation with vertical bar via border
         this.decorationTypes.set('indent', vscode.window.createTextEditorDecorationType({
             isWholeLine: true,
             borderWidth: '0 0 0 2px',
             borderStyle: 'solid', 
-            borderColor: '#888888'
+            light: { borderColor: '#888888' },
+            dark: { borderColor: '#666666' }
         }));
         
-        // Header decorations with actual styling - darkest to lighter gray tones
-        // Base gray reduced by 20% (from #808080 to #666666)
+        // Header decorations with theme-aware styling
         this.decorationTypes.set('header1', vscode.window.createTextEditorDecorationType({
-            color: '#1a1a1a',  // Darkest gray (was #303030, now much darker)
-            fontWeight: 'bold',
-            textDecoration: 'underline; font-size: 1.5em'  // 150% size
+            light: { 
+                color: '#1a1a1a',
+                textDecoration: 'underline; font-size: 1.5em',
+                fontWeight: 'bold'
+            },
+            dark: { 
+                color: '#e0e0e0',
+                textDecoration: 'underline; font-size: 1.5em',
+                fontWeight: 'bold'
+            }
         }));
         this.decorationTypes.set('header2', vscode.window.createTextEditorDecorationType({
-            color: '#333333',  // Dark gray (was #505050, now darker)
-            fontWeight: 'bold',
-            textDecoration: 'underline; font-size: 1.25em'  // 125% size with underline
+            light: { 
+                color: '#333333',
+                textDecoration: 'underline; font-size: 1.25em',
+                fontWeight: 'bold'
+            },
+            dark: { 
+                color: '#d0d0d0',
+                textDecoration: 'underline; font-size: 1.25em',
+                fontWeight: 'bold'
+            }
         }));
         this.decorationTypes.set('header3', vscode.window.createTextEditorDecorationType({
-            color: '#333333',  // Medium gray (was #888888, now darker - this is base -20%)
-            fontWeight: 'bold',
-            textDecoration: 'underline'
+            light: { 
+                color: '#333333',
+                textDecoration: 'underline',
+                fontWeight: 'bold'
+            },
+            dark: { 
+                color: '#c0c0c0',
+                textDecoration: 'underline',
+                fontWeight: 'bold'
+            }
         }));
         // Headers 4-7 use same format as Header 3 but with smaller font sizes
         this.decorationTypes.set('header4', vscode.window.createTextEditorDecorationType({
-            color: '#333333',
-            fontWeight: 'bold',
-            textDecoration: 'underline; font-size: 0.95em'  // 95% of normal size with underline
+            light: { 
+                color: '#333333',
+                textDecoration: 'underline; font-size: 0.95em',
+                fontWeight: 'bold'
+            },
+            dark: { 
+                color: '#c0c0c0',
+                textDecoration: 'underline; font-size: 0.95em',
+                fontWeight: 'bold'
+            }
         }));
         this.decorationTypes.set('header5', vscode.window.createTextEditorDecorationType({
-            color: '#333333',
-            fontWeight: 'bold',
-            textDecoration: 'underline; font-size: 0.9em'  // 90% of normal size with underline
+            light: { 
+                color: '#333333',
+                textDecoration: 'underline; font-size: 0.9em',
+                fontWeight: 'bold'
+            },
+            dark: { 
+                color: '#c0c0c0',
+                textDecoration: 'underline; font-size: 0.9em',
+                fontWeight: 'bold'
+            }
         }));
         this.decorationTypes.set('header6', vscode.window.createTextEditorDecorationType({
-            color: '#333333',
-            fontWeight: 'bold',
-            textDecoration: 'underline; font-size: 0.85em'  // 85% of normal size with underline
+            light: { 
+                color: '#333333',
+                textDecoration: 'underline; font-size: 0.85em',
+                fontWeight: 'bold'
+            },
+            dark: { 
+                color: '#c0c0c0',
+                textDecoration: 'underline; font-size: 0.85em',
+                fontWeight: 'bold'
+            }
         }));
         this.decorationTypes.set('header7', vscode.window.createTextEditorDecorationType({
-            color: '#333333',
-            fontWeight: 'bold',
-            textDecoration: 'underline; font-size: 0.8em'  // 80% of normal size with underline
+            light: { 
+                color: '#333333',
+                textDecoration: 'underline; font-size: 0.8em',
+                fontWeight: 'bold'
+            },
+            dark: { 
+                color: '#c0c0c0',
+                textDecoration: 'underline; font-size: 0.8em',
+                fontWeight: 'bold'
+            }
         }));
 
-        // Gray color for comment block content - made darker
+        // Gray color for comment block content - theme aware
         this.decorationTypes.set('commentGray', vscode.window.createTextEditorDecorationType({
-            color: '#4d4d4d'  // Darker gray (was #666666)
+            light: { color: '#4d4d4d' },
+            dark: { color: '#a0a0a0' }
         }));
 
         // Replacement decoration that makes original text take no space
@@ -204,48 +270,59 @@ export class MarkdownCommentProvider {
             textDecoration: 'none; font-size: 0.01em'
         }));
         
-        // Syntax highlighting colors for code blocks
-        // Darker colors that work better with light backgrounds
+        // Syntax highlighting colors for code blocks - theme aware
         this.decorationTypes.set('syntax-keyword', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #AF00DB' },  // Dark purple for light theme
-            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme (inside light background)
+            light: { textDecoration: 'none; color: #AF00DB' },
+            dark: { textDecoration: 'none; color: #C586C0' },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-string', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #A31515' },  // Dark red for light theme
-            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            light: { textDecoration: 'none; color: #A31515' },
+            dark: { textDecoration: 'none; color: #CE9178' },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-number', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #098658' },  // Dark green for light theme
-            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            light: { textDecoration: 'none; color: #098658' },
+            dark: { textDecoration: 'none; color: #B5CEA8' },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-function', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #795E26' },  // Dark yellow for light theme
-            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            light: { textDecoration: 'none; color: #795E26' },
+            dark: { textDecoration: 'none; color: #DCDCAA' },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-comment', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #008000' },  // Dark green for light theme
-            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            light: { textDecoration: 'none; color: #008000' },
+            dark: { textDecoration: 'none; color: #6A9955' },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-variable', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #001080' },  // Dark blue for light theme
-            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            light: { textDecoration: 'none; color: #001080' },
+            dark: { textDecoration: 'none; color: #9CDCFE' },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-property', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #001080' },  // Dark blue for light theme
-            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            light: { textDecoration: 'none; color: #001080' },
+            dark: { textDecoration: 'none; color: #9CDCFE' },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-operator', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #000000' },  // Black for light theme
-            dark: { textDecoration: 'none; color: #FFFFFF' },   // White for dark theme
+            light: { textDecoration: 'none; color: #000000' },
+            dark: { textDecoration: 'none; color: #D4D4D4' },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
+    }
+
+    private getBorderColor(): string {
+        const isDark = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark || 
+                       vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast;
+        return isDark ? '#666666' : '#888888';
+    }
+
+    private getTextColor(): string {
+        const isDark = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark || 
+                       vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast;
+        return isDark ? '#d0d0d0' : '#4d4d4d';  // Lighter for dark themes to provide contrast
     }
 
     public updateDecorations(document: vscode.TextDocument): void {
@@ -684,7 +761,7 @@ export class MarkdownCommentProvider {
                     renderOptions: {
                         before: {
                             contentText: '┏' + '━'.repeat(79),  // Top-left corner with heavy horizontal line (matches 2px border)
-                            color: '#888888',  // Match vertical border color
+                            color: this.getBorderColor(),  // Match vertical border color (theme-aware)
                             margin: '0 0 0 -3px'  // Pull left to align with border
                         }
                     }
@@ -714,7 +791,7 @@ export class MarkdownCommentProvider {
                     renderOptions: {
                         before: {
                             contentText: '┗' + '━'.repeat(79),  // Bottom-left corner with heavy horizontal line (matches 2px border)
-                            color: '#888888',  // Match vertical border color
+                            color: this.getBorderColor(),  // Match vertical border color (theme-aware)
                             margin: '0 0 0 -3px'  // Pull left to align with border
                         }
                     }
@@ -1448,7 +1525,7 @@ export class MarkdownCommentProvider {
                                             decorationType === 'header7') ? 'italic' : undefined,
                                 textDecoration: decorationType === 'strikethrough' ? 'line-through' : 
                                               decorationType === 'header1' ? 'underline' : undefined,
-                                color: applyGrayColor && (decorationType === 'bold' || decorationType === 'italic' || decorationType === 'strikethrough') ? '#4d4d4d' : 
+                                color: applyGrayColor && (decorationType === 'bold' || decorationType === 'italic' || decorationType === 'strikethrough') ? this.getTextColor() : 
                                        (decorationType === 'header1' || decorationType === 'header2' || decorationType === 'header3' ||
                                         decorationType === 'header4' || decorationType === 'header5' || 
                                         decorationType === 'header6' || decorationType === 'header7') ? 

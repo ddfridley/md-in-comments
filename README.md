@@ -53,14 +53,19 @@ Limited markdown support in `//` and `#` comments:
 ### Markdown Files
 Full markdown rendering in `.md` files with all features enabled.
 
-🎨 **Visual Hierarchy**: Headers in block comments are distinguished by color intensity and styling:
-- H1: Darkest gray (#1a1a1a), bold, underlined, 150% size
-- H2: Dark gray (#333333), bold, underlined, 125% size
-- H3: Dark gray (#333333), bold, underlined, 100% size
-- H4-H7: Dark gray (#333333), bold, underlined, progressively smaller (95%, 90%, 85%, 80%)
+🎨 **Theme-Aware Styling**: All colors automatically adapt to your VS Code theme:
+- **Light Themes**: Dark headers (#1a1a1a to #333333), darker borders, high contrast text
+- **Dark Themes**: Light headers (#e0e0e0 to #c0c0c0), lighter borders, comfortable contrast
+- **Syntax Highlighting**: Pattern-based colors adapt to light/dark themes
+- **Automatic Updates**: Colors refresh instantly when you change themes
+
+**Visual Hierarchy** - Headers distinguished by color intensity and styling:
+- H1: 150% size, bold, underlined
+- H2: 125% size, bold, underlined
+- H3-H7: 100% to 80% size, bold, underlined
 
 �️ **Visual Borders**: Comment blocks are clearly delineated with:
-- 2px solid left border (#888888) for clear visual boundaries
+- 2px solid left border (theme-aware color)
 - Heavy box-drawing corner characters (┏ and ┗) connecting horizontal and vertical borders
 - Consistent border thickness throughout
 
@@ -304,7 +309,6 @@ The extension automatically detects and renders the markdown formatting. Click o
 - H1 and H2 use larger font sizes (150% and 125%) which may extend beyond line boundaries
 - H4-H7 use progressively smaller fonts but may affect line height
 - Code block syntax highlighting uses pattern-based coloring (not semantic)
-- Syntax colors are theme-aware for light/dark but may not perfectly match all color schemes
 - Complex nested markdown structures may not render perfectly
 - Single-line comments don't support headers, lists, or code blocks
 - Code blocks inherit VS Code's comment color (typically green) with syntax highlighting overlaid
@@ -312,9 +316,23 @@ The extension automatically detects and renders the markdown formatting. Click o
 - Links are not directly clickable in rendered mode (click line to edit, then Ctrl+Click URL)
 - ESC key in comment blocks exits text mode - doesn't interfere with autocomplete, find, or other ESC uses
 
+⚠️ **Indent Guides in Comments**: You may see vertical bars in comment blocks - these are VS Code's built-in indent guides. Unfortunately, VS Code doesn't provide an API for extensions to hide indent guides in specific regions, so they will appear in comments if you have them enabled for your code. This is a VS Code limitation, not an issue with the extension.
+
 ## Release Notes
 
-### 0.0.5 (Current)
+### 0.0.6 (Current)
+
+- **Theme Support**: All colors now automatically adapt to your VS Code theme (light/dark/high contrast)
+  - Headers use theme-appropriate colors (dark text for light themes, light text for dark themes)
+  - Borders adjust to theme (darker for dark themes, lighter for light themes)
+  - Comment text gray scales with theme
+  - Syntax highlighting colors match VS Code's default dark theme colors
+  - Automatic refresh when theme changes
+- **Links in Single-Line Comments**: Added support for `[text](url)` links in `//` and `#` style comments
+- **Documentation Updates**: Added function documentation template with JSDoc compatibility
+- **Nested Parameters**: Template shows how to document nested object properties
+
+### 0.0.5
 
 - **Visual Borders**: Added 2px solid left border to comment blocks with box-drawing corner characters (┏ and ┗)
 - **Block-Level Edit Mode**: Clicking inside a comment block now switches the entire block to text mode for easier editing

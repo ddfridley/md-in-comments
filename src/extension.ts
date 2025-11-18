@@ -54,6 +54,19 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 	context.subscriptions.push(documentChangeDisposable);
 
+	// Register for theme changes to reinitialize decorations with new colors
+	const themeChangeDisposable = vscode.window.onDidChangeActiveColorTheme(() => {
+		// Reinitialize decorations with theme-aware colors
+		markdownProvider.reinitializeForTheme();
+		// Force update all visible editors
+		vscode.window.visibleTextEditors.forEach(editor => {
+			if (supportedLanguages.includes(editor.document.languageId)) {
+				markdownProvider.forceUpdate(editor.document);
+			}
+		});
+	});
+	context.subscriptions.push(themeChangeDisposable);
+
 	// Initialize decorations for the current active editor
 	if (vscode.window.activeTextEditor) {
 		const doc = vscode.window.activeTextEditor.document;
