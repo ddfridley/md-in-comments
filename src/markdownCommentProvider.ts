@@ -527,9 +527,12 @@ export class MarkdownCommentProvider {
     ): void {
         // NO gray color overlay for single-line comments
         // NO code blocks, headers, or lists
-        // Only inline formatting: bold, italic, code, strikethrough
+        // Only inline formatting: bold, italic, code, strikethrough, links
         
         const codeBlockRanges: Array<{start: number, end: number}> = []; // Empty - no code blocks in single lines
+        
+        // Parse links first (before inline code to avoid conflicts)
+        this.parseLinks(text, comment, decorations, document, activeLine, codeBlockRanges);
         
         // Parse inline formatting only - pass false for applyGrayColor to preserve original comment color
         this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine, codeBlockRanges, false);

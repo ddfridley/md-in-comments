@@ -55,9 +55,10 @@ window.socket.emit('get-dem-info', ['id1', 'id2'], (result) => {
 
 function testFunction() {
     // Single-line with **bold** text (no header support!)
-    // Regular comment with *emphasis*
+    // Regular comment with *emphasis* and a [link](https://example.com)  
     console.log("Testing markdown in comments");  // Trailing comment with **bold** formatting
     const x = 5;  // Another trailing comment with `code` and *italic*
+    const y = 10; // Check out [VS Code](https://code.visualstudio.com) for more info
 }
 
 /*****
@@ -87,6 +88,7 @@ function testFunction() {
 
 **Task Lists:**
 - [ ] Incomplete task
+ - [ ] An indented incomplete task
 - [x] Completed task
 - [ ] Another pending task
 - [X] Another completed task (uppercase X)

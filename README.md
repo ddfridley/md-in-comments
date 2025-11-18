@@ -14,7 +14,11 @@ This extension is itself AI generated. I consider myself a good JS programmer, b
 
 ## Tips
 
-💡 Use Word Wrap `[View][Word Wrap]` when using this extension so lines wrap at the edge of the window.
+💡 **Word Wrap**: Use `[View][Word Wrap]` when using this extension so lines wrap at the edge of the window.
+
+## Known Limitations
+
+⚠️ **Indent Guides in Comments**: You may see vertical bars in comment blocks - these are VS Code's built-in indent guides. Unfortunately, VS Code doesn't provide an API for extensions to hide indent guides in specific regions, so they will appear in comments if you have them enabled for your code. This is a VS Code limitation, not an issue with the extension.
 
 
 ## Features
@@ -41,6 +45,7 @@ Full markdown support in `/* ... */` and `"""..."""` comments:
 ### Single-Line Comments
 Limited markdown support in `//` and `#` comments:
 - **Bold**, *italic*, `code`, and ~~strikethrough~~ formatting
+- **Links** with `[text](url)` syntax
 - Works in standalone comments and trailing comments after code
 - **No headers, lists, or code blocks** to keep single lines clean
 - Preserves original comment color (no gray overlay)
@@ -291,7 +296,6 @@ The extension automatically detects and renders the markdown formatting. Click o
 - **HTML**: Raw HTML tags
 - **Math**: LaTeX/KaTeX equations
 - **Emoji Shortcodes**: `:smile:` style (Unicode emoji like 🙂 work)
-- **Nested Lists**: Multiple indent levels
 - **Reference Links**: `[text][ref]` style links
 - **Auto-linking**: Plain URLs (must use `[text](url)`)
 
