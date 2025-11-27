@@ -3,10 +3,95 @@ import * as vscode from 'vscode';
 /**
  * MarkdownCommentProvider - Renders markdown formatting within code comments
  * 
- * HOW THE RENDERING WORKS:
+ * ============================================================================
+ * HORIZONTAL POSITIONING STRATEGY FOR LIST ITEMS (BULLETS, NUMBERS, TASKS)
+ * ============================================================================
+ * 
+ * The challenge: VS Code's decoration API cannot truly remove text from the document.
+ * When we "hide" markdown syntax (like "- " or "1. "), we use the 'replace' decoration
+ * which makes text invisible via opacity:0, letterSpacing:-999px, font-size:0.01em.
+ * However, this hidden text still occupies some residual horizontal space.
+ * 
+ * THREE RENDERING SCENARIOS:
+ * 
+ * TERMINOLOGY:
+ *   "marker" = The original markdown syntax characters being hidden (e.g., "- ", "1. ", "- [ ]")
+ *              Note: The variable `markerPosition` in code refers to the document position of this
+ *              hidden syntax, which is a different (but related) usage - it's the Position object
+ *              for where the marker appears in the document.
+ * 
+ * ┌─────────────────────────────────────────────────────────────────────────────┐
+ * │ SCENARIO 1: Markdown Files (.md, .instructions)                             │
+ * ├─────────────────────────────────────────────────────────────────────────────┤
+ * │ Source:    "- First item"                                                   │
+ * │ Rendered:  "• First item"                                                   │
+ * │                                                                             │
+ * │ Strategy:                                                                   │
+ * │   - Hide "- " via replace decoration                                        │
+ * │   - Insert "• " via before decoration (with trailing space)                 │
+ * │   - No special margin adjustments needed                                    │
+ * │   - The hidden marker's residual space + trailing space = acceptable gap    │
+ * └─────────────────────────────────────────────────────────────────────────────┘
+ * 
+ * ┌─────────────────────────────────────────────────────────────────────────────┐
+ * │ SCENARIO 2: Comment Block WITH Leading Asterisk (JavaDoc-style)             │
+ * │ Example: Lines like " * - item" in test.ts line 147                         │
+ * ├─────────────────────────────────────────────────────────────────────────────┤
+ * │ Source:    " * - First item"                                                │
+ * │ Rendered:  "  • First item"  (asterisk hidden, bullet replaces dash)        │
+ * │                                                                             │
+ * │ Strategy:                                                                   │
+ * │   1. hideAsteriskPrefixes() hides " * " prefix first                        │
+ * │   2. addLineIndentation() adds "  " with 1rem margin at position 0          │
+ * │   3. parseLists() finds "- " AFTER the hidden prefix                        │
+ * │      - markerPosition.start.character > 0 (not at column 0)                 │
+ * │      - Uses standard "• " with trailing space, no margin adjustment         │
+ * │   4. Result: proper alignment because the list marker starts after the      │
+ * │      hidden asterisk prefix, and spacing works naturally                    │
+ * └─────────────────────────────────────────────────────────────────────────────┘
+ * 
+ * ┌─────────────────────────────────────────────────────────────────────────────┐
+ * │ SCENARIO 3: Comment Block WITHOUT Leading Asterisk                          │
+ * │ Example: Lines like "- item" in test.ts line 24                             │
+ * ├─────────────────────────────────────────────────────────────────────────────┤
+ * │ Source:    "- First item"  (inside /​* ... *​/ block, no leading asterisk)   │
+ * │ Rendered:  "  • First item"  (indented to align with text above)            │
+ * │                                                                             │
+ * │ THE PROBLEM:                                                                │
+ * │   - The "- " marker starts at column 0                                      │
+ * │   - addLineIndentation() adds "  " with 1rem margin at position 0           │
+ * │   - When we hide "- " and insert "•", the hidden text's residual space      │
+ * │     creates ~2-3 extra characters of gap between bullet and text            │
+ * │                                                                             │
+ * │ THE SOLUTION:                                                               │
+ * │   When isAtColumnZero && !isMarkdownDocument:                               │
+ * │   1. beforeRenderOptions.contentText = '•' (NO trailing space)              │
+ * │   2. beforeRenderOptions.margin = '0 0 0 2ch' (push bullet right to align)  │
+ * │   3. renderOpts.after = { margin: '0 0 0 -2ch' } (pull text LEFT to reduce  │
+ * │      the gap caused by hidden marker's residual space)                      │
+ * │                                                                             │
+ * │   The negative after-margin compensates for the hidden "- " that still      │
+ * │   takes up horizontal space, bringing the text closer to the bullet.        │
+ * └─────────────────────────────────────────────────────────────────────────────┘
+ * 
+ * INDENTED LIST ITEMS (e.g., "  - Nested item"):
+ *   - The leading whitespace is captured as 'indent' by the regex
+ *   - markerPosition.start.character > 0, so NO special margin adjustments
+ *   - Standard "• " or "1. " with trailing space works correctly
+ *   - The source indent naturally positions the bullet
+ * 
+ * KEY FUNCTIONS:
+ *   - hideAsteriskPrefixes(): Hides " * " or "* " prefixes in JavaDoc comments
+ *   - addLineIndentation(): Adds "  " with 1rem margin to ALL comment lines
+ *   - parseLists(): Handles bullets (•), numbers (1.), with column-0 adjustments
+ *   - parseTaskLists(): Handles checkboxes (☐/☑), with column-0 adjustments
+ * 
+ * ============================================================================
+ * HOW THE RENDERING WORKS (GENERAL):
+ * ============================================================================
  * 
  * 1. COMMENT EXTRACTION:
- *    - Scans document for multi-line comment blocks only (Java/C-style '/ * ... * /' and Python triple-quote)
+ *    - Scans document for multi-line comment blocks (Java/C-style and Python triple-quote)
  *    - Extracts clean comment text by removing comment markers
  *    - Preserves original document positions for accurate decoration placement
  * 
@@ -29,7 +114,7 @@ import * as vscode from 'vscode';
  *    - Formatted content appears in exact same position with applied styling
  * 
  * 5. DECORATION TYPES:
- *    - 'replace': Makes original markdown text transparent and tiny
+ *    - 'replace': Makes original markdown text transparent and tiny (opacity:0, letterSpacing:-999px)
  *    - 'bold', 'italic', etc.: Placeholder types that trigger the before content rendering
  *    - All actual styling is applied via renderOptions.before properties
  * 
@@ -38,16 +123,20 @@ import * as vscode from 'vscode';
  * - *italic text*
  * - \`inline code\`
  * - ~~strikethrough~~
- * - # Header 1 (bold, underlined, colored)
- * - ## Header 2 (bold, colored)
- * - ### Header 3 (bold, colored)
+ * - # Header 1 through ####### Header 7
+ * - Bullet lists (- or *)
+ * - Numbered lists (1. 2. etc)
+ * - Task lists (- [ ] or - [x])
+ * - [links](url) and ![images](url)
  * 
  * SUPPORTED COMMENT TYPES (BLOCK ONLY):
- * - Multi-line: \/\* comment \*\/ (JavaScript, TypeScript, Java, C#, C/C++, Go, Rust, PHP)
+ * - Multi-line: Java/C-style block comments (JavaScript, TypeScript, Java, C#, C/C++, Go, Rust, PHP)
  * - Multi-line: triple-quote comment (Python)
+ * - Markdown files (.md, .instructions)
  * 
  * LIMITATIONS:
  * - Cannot truly remove text from document (VS Code API limitation)
+ * - Hidden text still occupies residual space (compensated with negative margins)
  * - Complex nested markdown may not render perfectly
  * - Performance impact on very large files with many comments
  */
@@ -94,11 +183,19 @@ export class MarkdownCommentProvider {
         }
     }
 
-    /**
-     * Check if the current cursor position is inside a comment block
-     * @param document The document to check
-     * @param line The line number to check
-     * @returns true if the line is inside a comment block (and not a markdown file)
+    /*
+     * ## isInCommentBlock(document, line) ⇒ {boolean}
+     * Check if the current cursor position is inside a comment block.
+     * 
+     * **Kind:** method  
+     * **Access:** public
+     * 
+     * ## Parameters
+     * - `document` **{vscode.TextDocument}** - The document to check
+     * - `line` **{number}** - The line number to check
+     * 
+     * ## Returns
+     * **{boolean}** - `true` if the line is inside a comment block (and not a markdown file)
      */
     public isInCommentBlock(document: vscode.TextDocument, line: number): boolean {
         // Don't treat markdown files as comment blocks for ESC key handling
@@ -123,9 +220,18 @@ export class MarkdownCommentProvider {
         return false;
     }
 
-    /**
-     * Exit comment block text mode by moving cursor outside the block
-     * @param editor The text editor
+    /*
+     * ## exitCommentBlockTextMode(editor) ⇒ {void}
+     * Exit comment block text mode by moving cursor outside the block.
+     * 
+     * **Kind:** method  
+     * **Access:** public
+     * 
+     * ## Parameters
+     * - `editor` **{vscode.TextEditor}** - The text editor
+     * 
+     * ## Returns
+     * **{void}**
      */
     public exitCommentBlockTextMode(editor: vscode.TextEditor): void {
         const document = editor.document;
@@ -613,7 +719,7 @@ export class MarkdownCommentProvider {
         
         // Parse inline formatting only - pass false for applyGrayColor to preserve original comment color
         this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine, codeBlockRanges, false);
-        this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, codeBlockRanges, false);
+        this.parseAndReplace(text, /(?<!\*)\*([^*\n]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, codeBlockRanges, false);
         this.parseAndReplace(text, /(?<!`)`([^`\n]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, codeBlockRanges, false);
         this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, codeBlockRanges, false);
     }
@@ -707,7 +813,7 @@ export class MarkdownCommentProvider {
         // Process ALL inline formatting FIRST, before any headers or lists
         // Pass false for applyLineStartIndent since this is a pure markdown file, not a comment block
         this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine, exclusionRanges, true, false);
-        this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, exclusionRanges, true, false);
+        this.parseAndReplace(text, /(?<!\*)\*([^*\n]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, exclusionRanges, true, false);
         // Match single backticks but not triple backticks (code blocks) - [^`\n]+ prevents matching across lines
         this.parseAndReplace(text, /(?<!`)`([^`\n]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, exclusionRanges, true, false);
         this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, exclusionRanges, true, false);
@@ -715,7 +821,6 @@ export class MarkdownCommentProvider {
         // Process links and images (must be before lists to avoid conflicts)
         this.parseLinks(text, comment, decorations, document, activeLine, exclusionRanges);
         this.parseImages(text, comment, decorations, document, activeLine, exclusionRanges);
-        
         // Process task lists
         this.parseTaskLists(text, comment, decorations, document, activeLine, exclusionRanges);
         
@@ -1146,12 +1251,9 @@ export class MarkdownCommentProvider {
         exclusionRanges: Array<{start: number, end: number}> = []
     ): void {
         // Match unordered list items: - item or * item (but not ** for bold)
-        const bulletPattern = /^(\s*)[-*]\s+(.*)$/gm;
+        const bulletPattern = /^([ \t]*)(?:-|\*(?!\*))\s+(.*)$/gm;
         // Match ordered list items: 1. item, 2. item, etc.
-        const numberedPattern = /^(\s*)(\d+)\.\s+(.*)$/gm;
-        // Task list pattern to skip - no ^ anchor since we're testing extracted text
-        const taskPattern = /^\s*-\s+\[([ xX])\]/;
-        
+        const numberedPattern = /^([ \t]*)(\d+)\.\s+(.*)$/gm;
         let match;
         const replaceList = decorations.get('replace') || [];
         
@@ -1160,7 +1262,6 @@ export class MarkdownCommentProvider {
         while ((match = bulletPattern.exec(text)) !== null) {
             // Check if match is within any exclusion range (code blocks, HTML comments)
             const matchStart = match.index;
-            const matchEnd = matchStart + match[0].length;
             const isInExcludedRange = exclusionRanges.some(range => 
                 matchStart >= range.start && matchStart < range.end
             );
@@ -1183,10 +1284,9 @@ export class MarkdownCommentProvider {
                 continue;
             }
             
+            const prefixLength = match[0].length - indent.length - content.length;
             const markerStart = match.index + indent.length;
-            const markerEnd = markerStart + 2; // "- " or "* "
-            
-            // Get position for the bullet marker
+            const markerEnd = markerStart + prefixLength;
             const markerPosition = this.getDocumentPosition(markerStart, markerEnd, comment, document, text);
             
             if (markerPosition) {
@@ -1194,22 +1294,49 @@ export class MarkdownCommentProvider {
                 if (markerPosition.start.line === activeLine) {
                     continue;
                 }
-                // Hide the original marker (- or *)
+
+                // Hide the original bullet marker (e.g., "* " or "- ")
                 replaceList.push({
                     range: new vscode.Range(markerPosition.start, markerPosition.end)
                 });
+
+                const isMarkdownDocument = document.languageId === 'markdown' || document.languageId === 'instructions';
+                // Check if bullet is at column 0 (no leading whitespace or asterisk prefix)
+                // In this case, we need to handle indentation specially since addLineIndentation
+                // will also add spacing, but we need consistent bullet-to-text spacing
+                const isAtColumnZero = markerPosition.start.character === 0;
                 
-                // Replace with bullet character with margin-left for indent (2ch = 1ch base + 1ch list)
+                const beforeRenderOptions: vscode.ThemableDecorationAttachmentRenderOptions = {
+                    contentText: '• ',
+                    color: '#808080'
+                };
+                
+                // For non-markdown documents with bullets at column 0, the hidden "- " marker
+                // still takes up some space. We need to:
+                // 1. Use margin to position the bullet correctly under text above
+                // 2. Remove trailing space from bullet since hidden marker provides spacing
+                // 3. Use after decoration with negative margin to pull text closer to bullet
+                if (!isMarkdownDocument && isAtColumnZero) {
+                    beforeRenderOptions.contentText = '•';  // No trailing space
+                    beforeRenderOptions.margin = '0 0 0 2ch';
+                }
+
                 const decorationList = decorations.get('bold') || [];
+                const renderOpts: vscode.DecorationRenderOptions = {
+                    before: beforeRenderOptions
+                };
+                
+                // For column-0 bullets, add after decoration to pull text left (reduce gap)
+                if (!isMarkdownDocument && isAtColumnZero) {
+                    renderOpts.after = {
+                        contentText: '',
+                        margin: '0 0 0 -2ch'  // Pull text left to reduce gap from hidden marker
+                    };
+                }
+                
                 decorationList.push({
                     range: new vscode.Range(markerPosition.start, markerPosition.start),
-                    renderOptions: {
-                        before: {
-                            contentText: '• ',
-                            color: '#808080',
-                            margin: '0 0 0 2ch'  // 2 character width left margin for indent
-                        }
-                    }
+                    renderOptions: renderOpts
                 });
                 decorations.set('bold', decorationList);
             }
@@ -1220,7 +1347,6 @@ export class MarkdownCommentProvider {
         while ((match = numberedPattern.exec(text)) !== null) {
             // Check if match is within any exclusion range (code blocks, HTML comments)
             const matchStart = match.index;
-            const matchEnd = matchStart + match[0].length;
             const isInExcludedRange = exclusionRanges.some(range => 
                 matchStart >= range.start && matchStart < range.end
             );
@@ -1231,7 +1357,6 @@ export class MarkdownCommentProvider {
             
             const indent = match[1] || '';
             const number = match[2];
-            const content = match[3];
             const markerStart = match.index + indent.length;
             const markerEnd = markerStart + number.length + 2; // "1. " or "2. " etc.
             
@@ -1249,18 +1374,37 @@ export class MarkdownCommentProvider {
                     range: new vscode.Range(markerPosition.start, markerPosition.end)
                 });
                 
-                // Replace with styled number with margin-left for indent (2ch = 1ch base + 1ch list)
+                const isMarkdownDocument = document.languageId === 'markdown' || document.languageId === 'instructions';
+                const isAtColumnZero = markerPosition.start.character === 0;
+                
+                const beforeRenderOptions: vscode.ThemableDecorationAttachmentRenderOptions = {
+                    contentText: `${number}. `,
+                    color: '#808080',
+                    fontWeight: 'bold'
+                };
+                
+                // For non-markdown documents with numbers at column 0, position correctly
+                if (!isMarkdownDocument && isAtColumnZero) {
+                    beforeRenderOptions.contentText = `${number}.`;  // No trailing space
+                    beforeRenderOptions.margin = '0 0 0 2ch';
+                }
+                
                 const decorationList = decorations.get('bold') || [];
+                const renderOpts: vscode.DecorationRenderOptions = {
+                    before: beforeRenderOptions
+                };
+                
+                // For column-0 numbers, add after decoration to pull text left (reduce gap)
+                if (!isMarkdownDocument && isAtColumnZero) {
+                    renderOpts.after = {
+                        contentText: '',
+                        margin: '0 0 0 -2ch'  // Pull text left to reduce gap from hidden marker
+                    };
+                }
+                
                 decorationList.push({
                     range: new vscode.Range(markerPosition.start, markerPosition.start),
-                    renderOptions: {
-                        before: {
-                            contentText: `${number}. `,
-                            color: '#808080',
-                            fontWeight: 'bold',
-                            margin: '0 0 0 2ch'  // 2 character width left margin for indent
-                        }
-                    }
+                    renderOptions: renderOpts
                 });
                 decorations.set('bold', decorationList);
             }
@@ -1278,7 +1422,7 @@ export class MarkdownCommentProvider {
         codeBlockRanges: Array<{start: number, end: number}>
     ): void {
         // Match markdown links: [text](url)
-        const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+        const linkPattern = /\[([^\]\n]+)\]\(([^)\n]+)\)/g;
         let match;
         const replaceList = decorations.get('replace') || [];
         
@@ -1339,7 +1483,7 @@ export class MarkdownCommentProvider {
         codeBlockRanges: Array<{start: number, end: number}>
     ): void {
         // Match markdown images: ![alt](url)
-        const imagePattern = /!\[([^\]]+)\]\(([^)]+)\)/g;
+        const imagePattern = /!\[([^\]\n]+)\]\(([^)\n]+)\)/g;
         let match;
         const replaceList = decorations.get('replace') || [];
         
@@ -1438,19 +1582,40 @@ export class MarkdownCommentProvider {
                     range: new vscode.Range(markerPosition.start, markerPosition.end)
                 });
                 
-                // Replace with checkbox character with margin-left for indent (2ch = 1ch base + 1ch list)
+                const isMarkdownDocument = document.languageId === 'markdown' || document.languageId === 'instructions';
+                const isAtColumnZero = markerPosition.start.character === 0;
+                
+                // Replace with checkbox character
                 const isChecked = checkState.toLowerCase() === 'x';
                 const checkbox = isChecked ? '☑' : '☐';
+                
+                const beforeRenderOptions: vscode.ThemableDecorationAttachmentRenderOptions = {
+                    contentText: `${checkbox} `,
+                    color: isChecked ? '#4CAF50' : '#808080'
+                };
+                
+                // For non-markdown documents with tasks at column 0, position correctly
+                if (!isMarkdownDocument && isAtColumnZero) {
+                    beforeRenderOptions.contentText = checkbox;  // No trailing space
+                    beforeRenderOptions.margin = '0 0 0 2ch';
+                }
+                
                 const decorationList = decorations.get('bold') || [];
+                const renderOpts: vscode.DecorationRenderOptions = {
+                    before: beforeRenderOptions
+                };
+                
+                // For column-0 tasks, add after decoration to pull text left (reduce gap)
+                if (!isMarkdownDocument && isAtColumnZero) {
+                    renderOpts.after = {
+                        contentText: '',
+                        margin: '0 0 0 -2ch'  // Pull text left to reduce gap from hidden marker
+                    };
+                }
+                
                 decorationList.push({
                     range: new vscode.Range(markerPosition.start, markerPosition.start),
-                    renderOptions: {
-                        before: {
-                            contentText: `${checkbox} `,
-                            color: isChecked ? '#4CAF50' : '#808080',
-                            margin: '0 0 0 2ch'  // 2 character width left margin for indent
-                        }
-                    }
+                    renderOptions: renderOpts
                 });
                 decorations.set('bold', decorationList);
             }

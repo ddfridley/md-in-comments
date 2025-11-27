@@ -9,7 +9,7 @@ As we do more with AI, markdown documentation is everywhere. Let's make that mor
 
 And when you click in the code block, it reverts to code and you can edit it.  Hit `ESC` to get back to the MD view. `Ctrl+Shift+Alt+M` also toggles you in and out of MD view or code.
 
-This extension is itself AI generated. I consider myself a good JS programmer, but it would have been a big investment in time to figure out all the VSCode APIs and how to hack them to make it look like MD. That said, the code is AI generated and there may still be bugs.
+ * This extension is itself AI generated. I consider myself a good JS programmer, but it would have been a big investment in time to figure out all the VSCode APIs and how to hack them to make it look like MD. That said, the code is AI generated and there may still be bugs.
 
 **I wish that one day VSCode will provide an API to allow an extension to replace a range of code lines, with rendered HTML.** But for now, this extension is doing a lot just by manipulating the decorations on the lines. The limitations are that we can't change the line height, we can't join or separate lines as true MD can, and no images. Still, it's much nicer to read.
 
