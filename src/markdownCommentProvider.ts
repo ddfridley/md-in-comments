@@ -268,12 +268,31 @@ export class MarkdownCommentProvider {
                        vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast;
         
         // Dedicated decoration type for line indentation with vertical bar via border
+        // The backgroundColor covers VS Code's indent guides which otherwise show through
         this.decorationTypes.set('indent', vscode.window.createTextEditorDecorationType({
             isWholeLine: true,
             borderWidth: '0 0 0 2px',
             borderStyle: 'solid', 
-            light: { borderColor: '#888888' },
-            dark: { borderColor: '#666666' }
+            light: { 
+                borderColor: '#888888',
+                backgroundColor: new vscode.ThemeColor('editor.background')
+            },
+            dark: { 
+                borderColor: '#666666',
+                backgroundColor: new vscode.ThemeColor('editor.background')
+            }
+        }));
+        
+        // Background cover for markdown files to hide VS Code's indent guides
+        // Same as 'indent' but without the left border
+        this.decorationTypes.set('markdownLine', vscode.window.createTextEditorDecorationType({
+            isWholeLine: true,
+            light: { 
+                backgroundColor: new vscode.ThemeColor('editor.background')
+            },
+            dark: { 
+                backgroundColor: new vscode.ThemeColor('editor.background')
+            }
         }));
         
         // Header decorations with theme-aware styling
@@ -376,45 +395,65 @@ export class MarkdownCommentProvider {
             textDecoration: 'none; font-size: 0.01em'
         }));
         
-        // Syntax highlighting colors for code blocks - theme aware
+        // Code block background - inverted theme (light bg in dark mode, dark bg in light mode)
+        // This creates visual distinction for code blocks within comments
+        this.decorationTypes.set('codeBlockLine', vscode.window.createTextEditorDecorationType({
+            isWholeLine: true,
+            light: { 
+                backgroundColor: '#1e1e1e',  // VS Code dark theme default background
+                borderWidth: '0 0 0 2px',
+                borderStyle: 'solid',
+                borderColor: '#888888'
+            },
+            dark: { 
+                backgroundColor: '#f8f8f8',  // Light background for dark themes
+                borderWidth: '0 0 0 2px',
+                borderStyle: 'solid',
+                borderColor: '#666666'
+            }
+        }));
+        
+        // Syntax highlighting colors for code blocks - INVERTED theme aware
+        // In light mode, use dark theme colors (for dark code block background)
+        // In dark mode, use light theme colors (for light code block background)
         this.decorationTypes.set('syntax-keyword', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #AF00DB' },
-            dark: { textDecoration: 'none; color: #C586C0' },
+            light: { textDecoration: 'none; color: #C586C0' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #AF00DB' },   // Light theme color on dark (inverted)
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-string', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #A31515' },
-            dark: { textDecoration: 'none; color: #CE9178' },
+            light: { textDecoration: 'none; color: #CE9178' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #A31515' },   // Light theme color on dark (inverted)
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-number', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #098658' },
-            dark: { textDecoration: 'none; color: #B5CEA8' },
+            light: { textDecoration: 'none; color: #B5CEA8' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #098658' },   // Light theme color on dark (inverted)
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-function', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #795E26' },
-            dark: { textDecoration: 'none; color: #DCDCAA' },
+            light: { textDecoration: 'none; color: #DCDCAA' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #795E26' },   // Light theme color on dark (inverted)
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-comment', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #008000' },
-            dark: { textDecoration: 'none; color: #6A9955' },
+            light: { textDecoration: 'none; color: #6A9955' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #008000' },   // Light theme color on dark (inverted)
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-variable', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #001080' },
-            dark: { textDecoration: 'none; color: #9CDCFE' },
+            light: { textDecoration: 'none; color: #9CDCFE' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #0000AA' },   // Darker blue visible on light bg
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-property', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #001080' },
-            dark: { textDecoration: 'none; color: #9CDCFE' },
+            light: { textDecoration: 'none; color: #9CDCFE' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #0000AA' },   // Darker blue visible on light bg
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-operator', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #000000' },
-            dark: { textDecoration: 'none; color: #D4D4D4' },
+            light: { textDecoration: 'none; color: #D4D4D4' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #505050' },   // Medium gray visible on light bg (#f8f8f8)
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
     }
@@ -786,6 +825,9 @@ export class MarkdownCommentProvider {
         // Markdown files: full markdown support without comment-specific processing
         // NO gray color overlay, NO comment delimiter replacement
         
+        // Apply background to all lines to cover VS Code's indent guides
+        this.applyMarkdownLineBackground(comment, decorations, document, activeLine);
+        
         // Identify HTML comment regions to exclude from markdown processing
         const htmlCommentRanges: Array<{start: number, end: number}> = [];
         const htmlCommentPattern = /<!--[\s\S]*?-->/g;
@@ -1055,6 +1097,41 @@ export class MarkdownCommentProvider {
         return ranges;
     }
 
+    /**
+     * Get code block ranges as LINE INDICES (0-based) relative to cleaned text.
+     * Returns ranges where startLine is the first content line (after opening ```)
+     * and endLine is the last content line (before closing ```).
+     */
+    private getCodeBlockLineRanges(text: string): Array<{startLine: number, endLine: number}> {
+        const ranges: Array<{startLine: number, endLine: number}> = [];
+        const lines = text.split('\n');
+        let inCodeBlock = false;
+        let blockStartLine = 0;
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (/^```/.test(line)) {
+                if (!inCodeBlock) {
+                    // Start of code block - content starts on next line
+                    inCodeBlock = true;
+                    blockStartLine = i + 1;
+                } else {
+                    // End of code block - content ends on previous line
+                    // Only add if there's actual content (startLine <= i-1)
+                    if (blockStartLine <= i - 1) {
+                        ranges.push({
+                            startLine: blockStartLine,
+                            endLine: i - 1
+                        });
+                    }
+                    inCodeBlock = false;
+                }
+            }
+        }
+        
+        return ranges;
+    }
+
     private applySyntaxHighlightingToCodeBlocks(
         text: string,
         comment: CommentBlock,
@@ -1063,6 +1140,9 @@ export class MarkdownCommentProvider {
         activeLine: number,
         codeBlockRanges: Array<{start: number, end: number}>
     ): void {
+        // Apply inverted background to all code block lines (including ``` delimiters)
+        this.applyCodeBlockBackground(comment, decorations, document, activeLine);
+        
         for (const codeBlock of codeBlockRanges) {
             const codeContent = text.substring(codeBlock.start, codeBlock.end);
             
@@ -1076,7 +1156,7 @@ export class MarkdownCommentProvider {
             this.applySyntaxPattern(codeContent, comments, 'syntax-comment', codeBlock.start, comment, decorations, document, activeLine, text);
             
             // Keywords
-            const keywords = /\b(const|let|var|function|class|if|else|for|while|return|import|export|from|async|await|new|this|super|extends|implements|interface|type|enum|public|private|protected|static|readonly|null|undefined|true|false|void|any|string|number|boolean)\b/g;
+            const keywords = /\b(const|let|var|function|class|if|else|for|while|return|import|export|from|async|await|new|this|super|extends|implements|interface|type|enum|public|private|protected|static|readonly|null|undefined|true|false|void|any|string|number|boolean|try|catch|finally|throw|typeof|instanceof|in|of|delete|default|switch|case|break|continue|do|with|yield|debugger)\b/g;
             this.applySyntaxPattern(codeContent, keywords, 'syntax-keyword', codeBlock.start, comment, decorations, document, activeLine, text);
             
             // Function calls
@@ -1086,9 +1166,123 @@ export class MarkdownCommentProvider {
             // Numbers
             const numbers = /\b\d+\.?\d*\b/g;
             this.applySyntaxPattern(codeContent, numbers, 'syntax-number', codeBlock.start, comment, decorations, document, activeLine, text);
+            
+            // Operators and punctuation (=, +, -, *, /, comma, semicolon, brackets, etc.)
+            const operators = /[=+\-*/<>!&|^~%?:,;()\[\]{}]+/g;
+            this.applySyntaxPattern(codeContent, operators, 'syntax-operator', codeBlock.start, comment, decorations, document, activeLine, text);
+            
+            // Identifiers (variables, parameters) - match any remaining words not already colored
+            const identifiers = /\b[a-zA-Z_$][a-zA-Z0-9_$]*\b/g;
+            this.applySyntaxPattern(codeContent, identifiers, 'syntax-variable', codeBlock.start, comment, decorations, document, activeLine, text);
         }
     }
 
+    private applyCodeBlockBackground(
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number
+    ): void {
+        // Find the actual document lines for the code block by scanning the original document
+        
+        const codeBlockLineList = decorations.get('codeBlockLine') || [];
+        
+        // Scan the document lines within this comment block to find ``` markers
+        let inCodeBlock = false;
+        let codeBlockStartLine = -1;
+        
+        // Determine if this is a markdown file (no comment prefixes like " * ")
+        const isMarkdownFile = document.languageId === 'markdown' || document.languageId === 'instructions';
+        
+        for (let lineNum = comment.startLine; lineNum <= comment.endLine; lineNum++) {
+            const lineText = document.lineAt(lineNum).text;
+            
+            // For markdown files: only match ``` at start of line (no leading content)
+            // For code comments: match ``` with possible leading " * " prefix
+            const codeBlockPattern = isMarkdownFile 
+                ? /^```/  // Markdown: must start at column 0
+                : /^\s*\*?\s*```/;  // Code comments: allow whitespace and optional *
+            
+            if (codeBlockPattern.test(lineText)) {
+                if (!inCodeBlock) {
+                    // Opening ```
+                    inCodeBlock = true;
+                    codeBlockStartLine = lineNum;
+                } else {
+                    // Closing ``` - apply background from start to this line
+                    for (let bgLine = codeBlockStartLine; bgLine <= lineNum; bgLine++) {
+                        if (bgLine === activeLine) {
+                            continue;
+                        }
+                        
+                        const lineStart = new vscode.Position(bgLine, 0);
+                        const lineEnd = new vscode.Position(bgLine, Number.MAX_SAFE_INTEGER);
+                        
+                        codeBlockLineList.push({
+                            range: new vscode.Range(lineStart, lineEnd)
+                        });
+                    }
+                    inCodeBlock = false;
+                    codeBlockStartLine = -1;
+                }
+            }
+        }
+        
+        decorations.set('codeBlockLine', codeBlockLineList);
+    }
+
+    private applyMarkdownLineBackground(
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number
+    ): void {
+        // Apply background to all lines in markdown files to cover VS Code's indent guides
+        // BUT skip lines that are inside code blocks (they get codeBlockLine instead)
+        const markdownLineList = decorations.get('markdownLine') || [];
+        
+        // First, identify which lines are inside code blocks
+        const codeBlockLines = new Set<number>();
+        let inCodeBlock = false;
+        
+        for (let lineNum = comment.startLine; lineNum <= comment.endLine; lineNum++) {
+            const lineText = document.lineAt(lineNum).text;
+            
+            if (/^```/.test(lineText)) {
+                if (!inCodeBlock) {
+                    inCodeBlock = true;
+                    codeBlockLines.add(lineNum); // Include the opening ```
+                } else {
+                    codeBlockLines.add(lineNum); // Include the closing ```
+                    inCodeBlock = false;
+                }
+            } else if (inCodeBlock) {
+                codeBlockLines.add(lineNum);
+            }
+        }
+        
+        // Apply markdownLine background only to non-code-block lines
+        for (let lineNum = comment.startLine; lineNum <= comment.endLine; lineNum++) {
+            // Skip the active line
+            if (lineNum === activeLine) {
+                continue;
+            }
+            
+            // Skip lines inside code blocks
+            if (codeBlockLines.has(lineNum)) {
+                continue;
+            }
+            
+            const lineStart = new vscode.Position(lineNum, 0);
+            const lineEnd = new vscode.Position(lineNum, Number.MAX_SAFE_INTEGER);
+            
+            markdownLineList.push({
+                range: new vscode.Range(lineStart, lineEnd)
+            });
+        }
+        
+        decorations.set('markdownLine', markdownLineList);
+    }
 
 
     private applySyntaxPattern(
@@ -1134,12 +1328,17 @@ export class MarkdownCommentProvider {
         comment: CommentBlock,
         document: vscode.TextDocument,
         decorations: Map<string, vscode.DecorationOptions[]>,
-        codeBlockRanges: Array<{start: number, end: number}>,
+        _codeBlockRanges: Array<{start: number, end: number}>,  // Unused - kept for signature compatibility
         text: string
     ): void {
         const grayList = decorations.get('commentGray') || [];
         
-        if (codeBlockRanges.length === 0) {
+        // Use line-based ranges for accurate gray color exclusion
+        const codeBlockLineRanges = this.getCodeBlockLineRanges(text);
+        const cleanedLines = text.split('\n');
+        const totalCleanedLines = cleanedLines.length;
+        
+        if (codeBlockLineRanges.length === 0) {
             // No code blocks, apply gray to entire comment
             grayList.push({
                 range: new vscode.Range(
@@ -1148,33 +1347,33 @@ export class MarkdownCommentProvider {
                 )
             });
         } else {
-            // Apply gray to regions between code blocks
-            let lastEnd = 0;
-            
-            for (const codeBlock of codeBlockRanges) {
-                if (lastEnd < codeBlock.start) {
-                    // Add gray for the region before this code block
-                    const startPos = this.getDocumentPosition(lastEnd, lastEnd, comment, document, text);
-                    const endPos = this.getDocumentPosition(codeBlock.start, codeBlock.start, comment, document, text);
-                    
-                    if (startPos && endPos) {
-                        grayList.push({
-                            range: new vscode.Range(startPos.start, endPos.start)
-                        });
-                    }
+            // Build a set of line indices (in cleaned text) that are inside code blocks
+            const codeBlockLines = new Set<number>();
+            for (const range of codeBlockLineRanges) {
+                for (let i = range.startLine; i <= range.endLine; i++) {
+                    codeBlockLines.add(i);
                 }
-                lastEnd = codeBlock.end;
+                // Also mark the ``` delimiter lines as code block lines (so they don't get gray)
+                if (range.startLine > 0) {
+                    codeBlockLines.add(range.startLine - 1); // Opening ```
+                }
+                codeBlockLines.add(range.endLine + 1); // Closing ```
             }
             
-            // Add gray for any remaining content after the last code block
-            if (lastEnd < text.length) {
-                const startPos = this.getDocumentPosition(lastEnd, lastEnd, comment, document, text);
-                const endPos = new vscode.Position(comment.endLine, document.lineAt(comment.endLine).text.length);
-                
-                if (startPos) {
-                    grayList.push({
-                        range: new vscode.Range(startPos.start, endPos)
-                    });
+            // Apply gray to each line that is NOT in a code block
+            for (let cleanedLineIdx = 0; cleanedLineIdx < totalCleanedLines; cleanedLineIdx++) {
+                if (!codeBlockLines.has(cleanedLineIdx)) {
+                    // Map cleaned line index to document line
+                    const docLine = comment.startLine + cleanedLineIdx;
+                    if (docLine <= comment.endLine) {
+                        const lineText = document.lineAt(docLine).text;
+                        grayList.push({
+                            range: new vscode.Range(
+                                new vscode.Position(docLine, 0),
+                                new vscode.Position(docLine, lineText.length)
+                            )
+                        });
+                    }
                 }
             }
         }
