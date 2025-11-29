@@ -2892,6 +2892,12 @@
       "line": 126,
       "startChar": 21,
       "endChar": 23,
+      "type": "syntax-keyword"
+    },
+    {
+      "line": 126,
+      "startChar": 21,
+      "endChar": 23,
       "type": "syntax-variable"
     },
     {
@@ -3210,6 +3216,12 @@
       "line": 132,
       "startChar": 42,
       "endChar": 44,
+      "type": "syntax-keyword"
+    },
+    {
+      "line": 132,
+      "startChar": 42,
+      "endChar": 44,
       "type": "syntax-variable"
     },
     {
@@ -3300,6 +3312,12 @@
       "line": 133,
       "startChar": 54,
       "endChar": 56,
+      "type": "syntax-keyword"
+    },
+    {
+      "line": 133,
+      "startChar": 54,
+      "endChar": 56,
       "type": "syntax-variable"
     },
     {
@@ -3385,6 +3403,12 @@
       "startChar": 43,
       "endChar": 54,
       "type": "syntax-variable"
+    },
+    {
+      "line": 134,
+      "startChar": 55,
+      "endChar": 57,
+      "type": "syntax-keyword"
     },
     {
       "line": 134,
@@ -3498,7 +3522,19 @@
       "line": 135,
       "startChar": 59,
       "endChar": 63,
+      "type": "syntax-keyword"
+    },
+    {
+      "line": 135,
+      "startChar": 59,
+      "endChar": 63,
       "type": "syntax-variable"
+    },
+    {
+      "line": 135,
+      "startChar": 64,
+      "endChar": 71,
+      "type": "syntax-keyword"
     },
     {
       "line": 135,
@@ -3583,6 +3619,12 @@
       "startChar": 22,
       "endChar": 33,
       "type": "syntax-variable"
+    },
+    {
+      "line": 138,
+      "startChar": 34,
+      "endChar": 36,
+      "type": "syntax-keyword"
     },
     {
       "line": 138,
@@ -3906,6 +3948,12 @@
       "line": 149,
       "startChar": 25,
       "endChar": 27,
+      "type": "syntax-keyword"
+    },
+    {
+      "line": 149,
+      "startChar": 25,
+      "endChar": 27,
       "type": "syntax-variable"
     },
     {
@@ -4063,6 +4111,12 @@
       "startChar": 25,
       "endChar": 34,
       "type": "syntax-variable"
+    },
+    {
+      "line": 151,
+      "startChar": 35,
+      "endChar": 39,
+      "type": "syntax-keyword"
     },
     {
       "line": 151,
@@ -6362,6 +6416,12 @@
       "line": 203,
       "startChar": 57,
       "endChar": 64,
+      "type": "syntax-keyword"
+    },
+    {
+      "line": 203,
+      "startChar": 57,
+      "endChar": 64,
       "type": "syntax-variable"
     },
     {
@@ -6818,6 +6878,12 @@
       "line": 215,
       "startChar": 3,
       "endChar": 6,
+      "type": "syntax-keyword"
+    },
+    {
+      "line": 215,
+      "startChar": 3,
+      "endChar": 6,
       "type": "syntax-variable"
     },
     {
@@ -7143,6 +7209,12 @@
       "startChar": 5,
       "endChar": 10,
       "type": "syntax-function"
+    },
+    {
+      "line": 221,
+      "startChar": 5,
+      "endChar": 10,
+      "type": "syntax-keyword"
     },
     {
       "line": 221,
@@ -7556,6 +7628,12 @@
       "line": 229,
       "startChar": 39,
       "endChar": 43,
+      "type": "syntax-keyword"
+    },
+    {
+      "line": 229,
+      "startChar": 39,
+      "endChar": 43,
       "type": "syntax-variable"
     },
     {
@@ -7569,6 +7647,12 @@
       "startChar": 49,
       "endChar": 55,
       "type": "syntax-variable"
+    },
+    {
+      "line": 229,
+      "startChar": 56,
+      "endChar": 58,
+      "type": "syntax-keyword"
     },
     {
       "line": 229,
@@ -7646,6 +7730,12 @@
       "line": 230,
       "startChar": 46,
       "endChar": 50,
+      "type": "syntax-keyword"
+    },
+    {
+      "line": 230,
+      "startChar": 46,
+      "endChar": 50,
       "type": "syntax-variable"
     },
     {
@@ -7713,6 +7803,12 @@
       "startChar": 36,
       "endChar": 39,
       "type": "syntax-variable"
+    },
+    {
+      "line": 231,
+      "startChar": 40,
+      "endChar": 44,
+      "type": "syntax-keyword"
     },
     {
       "line": 231,
@@ -7988,6 +8084,12 @@
       "line": 234,
       "startChar": 42,
       "endChar": 46,
+      "type": "syntax-keyword"
+    },
+    {
+      "line": 234,
+      "startChar": 42,
+      "endChar": 46,
       "type": "syntax-variable"
     },
     {
@@ -8055,6 +8157,12 @@
       "startChar": 33,
       "endChar": 40,
       "type": "syntax-variable"
+    },
+    {
+      "line": 235,
+      "startChar": 41,
+      "endChar": 45,
+      "type": "syntax-keyword"
     },
     {
       "line": 235,
@@ -8438,6 +8546,12 @@
       "line": 243,
       "startChar": 30,
       "endChar": 32,
+      "type": "syntax-keyword"
+    },
+    {
+      "line": 243,
+      "startChar": 30,
+      "endChar": 32,
       "type": "syntax-variable"
     },
     {
@@ -8607,6 +8721,12 @@
       "startChar": 33,
       "endChar": 40,
       "type": "syntax-variable"
+    },
+    {
+      "line": 246,
+      "startChar": 41,
+      "endChar": 43,
+      "type": "syntax-keyword"
     },
     {
       "line": 246,
@@ -9252,6 +9372,12 @@
       "line": 264,
       "startChar": 33,
       "endChar": 37,
+      "type": "syntax-keyword"
+    },
+    {
+      "line": 264,
+      "startChar": 33,
+      "endChar": 37,
       "type": "syntax-variable"
     },
     {
@@ -9331,6 +9457,12 @@
       "startChar": 26,
       "endChar": 33,
       "type": "syntax-variable"
+    },
+    {
+      "line": 265,
+      "startChar": 34,
+      "endChar": 38,
+      "type": "syntax-keyword"
     },
     {
       "line": 265,

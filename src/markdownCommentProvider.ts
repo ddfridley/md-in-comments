@@ -590,6 +590,50 @@ export class MarkdownCommentProvider {
         this.updateDecorations(document);
     }
 
+    /**
+     * Get all decorations for a document (for testing purposes).
+     * This forces a fresh parse and returns the raw decoration map without filtering.
+     */
+    public getDecorations(document: vscode.TextDocument): Map<string, vscode.DecorationOptions[]> {
+        // Ensure decoration types are initialized
+        if (this.decorationTypes.size === 0) {
+            this.initializeDecorationTypes();
+        }
+        
+        // Clear cache to ensure fresh parse
+        const docUri = document.uri.toString();
+        this.cachedDecorations.delete(docUri);
+        this.cachedCommentBlocks.delete(docUri);
+
+        const allDecorations: Map<string, vscode.DecorationOptions[]> = new Map();
+        this.decorationTypes.forEach((_, key) => {
+            allDecorations.set(key, []);
+        });
+
+        const text = document.getText();
+
+        // Special handling for markdown files
+        if (document.languageId === 'markdown' || document.languageId === 'instructions') {
+            const markdownBlock: CommentBlock = {
+                text: text,
+                startLine: 0,
+                endLine: document.lineCount - 1,
+                startChar: 0,
+                endChar: document.lineAt(document.lineCount - 1).text.length,
+                originalLines: text.split('\n')
+            };
+            this.parseMarkdownFile(text, markdownBlock, allDecorations, document, -1);
+        } else {
+            // Extract and process comments from code files
+            const commentBlocks = this.extractComments(text, document.languageId);
+            commentBlocks.forEach(comment => {
+                this.parseMarkdownInComment(comment, allDecorations, document, -1);
+            });
+        }
+
+        return allDecorations;
+    }
+
     private extractComments(text: string, languageId: string): CommentBlock[] {
         const comments: CommentBlock[] = [];
         const lines = text.split('\n');

@@ -23,12 +23,6 @@
     {
       "line": 1,
       "startChar": 0,
-      "endChar": 15,
-      "type": "commentGray"
-    },
-    {
-      "line": 1,
-      "startChar": 0,
       "endChar": 9007199254740991,
       "type": "indent",
       "content": "  "
@@ -48,18 +42,12 @@
     {
       "line": 1,
       "startChar": 5,
-      "endChar": 15,
+      "endChar": 16,
       "type": "header1"
     },
     {
       "line": 2,
       "startChar": 0,
-      "endChar": 38,
-      "type": "commentGray"
-    },
-    {
-      "line": 2,
-      "startChar": 0,
       "endChar": 9007199254740991,
       "type": "indent",
       "content": "  "
@@ -72,35 +60,29 @@
     },
     {
       "line": 2,
-      "startChar": 11,
-      "endChar": 11,
+      "startChar": 12,
+      "endChar": 12,
       "type": "bold",
       "content": "bold"
     },
     {
       "line": 2,
-      "startChar": 11,
-      "endChar": 19,
+      "startChar": 12,
+      "endChar": 20,
       "type": "replace"
     },
     {
       "line": 2,
-      "startChar": 24,
-      "endChar": 24,
+      "startChar": 25,
+      "endChar": 25,
       "type": "italic",
       "content": "italic"
     },
     {
       "line": 2,
-      "startChar": 24,
-      "endChar": 32,
+      "startChar": 25,
+      "endChar": 33,
       "type": "replace"
-    },
-    {
-      "line": 3,
-      "startChar": 0,
-      "endChar": 17,
-      "type": "commentGray"
     },
     {
       "line": 3,
@@ -131,12 +113,6 @@
     {
       "line": 4,
       "startChar": 0,
-      "endChar": 18,
-      "type": "commentGray"
-    },
-    {
-      "line": 4,
-      "startChar": 0,
       "endChar": 9007199254740991,
       "type": "indent",
       "content": "  "
@@ -159,12 +135,6 @@
       "startChar": 3,
       "endChar": 5,
       "type": "replace"
-    },
-    {
-      "line": 5,
-      "startChar": 0,
-      "endChar": 18,
-      "type": "commentGray"
     },
     {
       "line": 5,
@@ -191,12 +161,6 @@
       "startChar": 3,
       "endChar": 6,
       "type": "replace"
-    },
-    {
-      "line": 6,
-      "startChar": 0,
-      "endChar": 19,
-      "type": "commentGray"
     },
     {
       "line": 6,
@@ -230,12 +194,6 @@
       "endChar": 0,
       "type": "bold",
       "content": "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    },
-    {
-      "line": 7,
-      "startChar": 0,
-      "endChar": 3,
-      "type": "commentGray"
     },
     {
       "line": 7,
