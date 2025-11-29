@@ -169,22 +169,61 @@ suite('Decoration Snapshot Tests', () => {
             return;
         }
 
-        // Compare decorations
-        assert.strictEqual(
-            sortedDecorations.length,
-            expected.decorations.length,
-            `Decoration count mismatch for ${fixtureName}: got ${sortedDecorations.length}, expected ${expected.decorations.length}`
-        );
-
-        for (let i = 0; i < sortedDecorations.length; i++) {
-            const actual = sortedDecorations[i];
-            const exp: DecorationSnapshot = expected.decorations[i];
+        // Compare decorations with detailed diff output
+        const actualSet = new Set(sortedDecorations.map(d => JSON.stringify(d)));
+        const expectedSet = new Set(expected.decorations.map(d => JSON.stringify(d)));
+        
+        const added: DecorationSnapshot[] = sortedDecorations.filter(d => !expectedSet.has(JSON.stringify(d)));
+        const removed: DecorationSnapshot[] = expected.decorations.filter(d => !actualSet.has(JSON.stringify(d)));
+        
+        if (added.length > 0 || removed.length > 0) {
+            // Build a helpful diff message
+            let diffMessage = `\n\nSnapshot mismatch for ${fixtureName}:\n`;
+            diffMessage += `  Total: ${sortedDecorations.length} actual vs ${expected.decorations.length} expected\n`;
+            diffMessage += `  Added: ${added.length}, Removed: ${removed.length}\n\n`;
             
-            assert.deepStrictEqual(
-                actual,
-                exp,
-                `Decoration mismatch at index ${i} for ${fixtureName}:\nActual: ${JSON.stringify(actual, null, 2)}\nExpected: ${JSON.stringify(exp, null, 2)}`
-            );
+            if (removed.length > 0) {
+                diffMessage += `REMOVED (in snapshot but not in actual):\n`;
+                // Group by line for readability
+                const removedByLine = new Map<number, DecorationSnapshot[]>();
+                for (const d of removed.slice(0, 20)) { // Limit to first 20
+                    const line = d.line;
+                    if (!removedByLine.has(line)) { removedByLine.set(line, []); }
+                    removedByLine.get(line)!.push(d);
+                }
+                removedByLine.forEach((decs, line) => {
+                    diffMessage += `  Line ${line}:\n`;
+                    for (const d of decs) {
+                        diffMessage += `    - ${d.type} [${d.startChar}-${d.endChar}]${d.content ? ` "${d.content}"` : ''}\n`;
+                    }
+                });
+                if (removed.length > 20) {
+                    diffMessage += `  ... and ${removed.length - 20} more\n`;
+                }
+            }
+            
+            if (added.length > 0) {
+                diffMessage += `\nADDED (in actual but not in snapshot):\n`;
+                const addedByLine = new Map<number, DecorationSnapshot[]>();
+                for (const d of added.slice(0, 20)) {
+                    const line = d.line;
+                    if (!addedByLine.has(line)) { addedByLine.set(line, []); }
+                    addedByLine.get(line)!.push(d);
+                }
+                addedByLine.forEach((decs, line) => {
+                    diffMessage += `  Line ${line}:\n`;
+                    for (const d of decs) {
+                        diffMessage += `    + ${d.type} [${d.startChar}-${d.endChar}]${d.content ? ` "${d.content}"` : ''}\n`;
+                    }
+                });
+                if (added.length > 20) {
+                    diffMessage += `  ... and ${added.length - 20} more\n`;
+                }
+            }
+            
+            diffMessage += `\nTo update snapshot: rm src/test/snapshots/${fixtureName}.json && npm test`;
+            
+            assert.fail(diffMessage);
         }
     }
 
