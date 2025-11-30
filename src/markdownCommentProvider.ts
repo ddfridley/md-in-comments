@@ -3,10 +3,95 @@ import * as vscode from 'vscode';
 /**
  * MarkdownCommentProvider - Renders markdown formatting within code comments
  * 
- * HOW THE RENDERING WORKS:
+ * ============================================================================
+ * HORIZONTAL POSITIONING STRATEGY FOR LIST ITEMS (BULLETS, NUMBERS, TASKS)
+ * ============================================================================
+ * 
+ * The challenge: VS Code's decoration API cannot truly remove text from the document.
+ * When we "hide" markdown syntax (like "- " or "1. "), we use the 'replace' decoration
+ * which makes text invisible via opacity:0, letterSpacing:-999px, font-size:0.01em.
+ * However, this hidden text still occupies some residual horizontal space.
+ * 
+ * THREE RENDERING SCENARIOS:
+ * 
+ * TERMINOLOGY:
+ *   "marker" = The original markdown syntax characters being hidden (e.g., "- ", "1. ", "- [ ]")
+ *              Note: The variable `markerPosition` in code refers to the document position of this
+ *              hidden syntax, which is a different (but related) usage - it's the Position object
+ *              for where the marker appears in the document.
+ * 
+ * ┌─────────────────────────────────────────────────────────────────────────────┐
+ * │ SCENARIO 1: Markdown Files (.md, .instructions)                             │
+ * ├─────────────────────────────────────────────────────────────────────────────┤
+ * │ Source:    "- First item"                                                   │
+ * │ Rendered:  "• First item"                                                   │
+ * │                                                                             │
+ * │ Strategy:                                                                   │
+ * │   - Hide "- " via replace decoration                                        │
+ * │   - Insert "• " via before decoration (with trailing space)                 │
+ * │   - No special margin adjustments needed                                    │
+ * │   - The hidden marker's residual space + trailing space = acceptable gap    │
+ * └─────────────────────────────────────────────────────────────────────────────┘
+ * 
+ * ┌─────────────────────────────────────────────────────────────────────────────┐
+ * │ SCENARIO 2: Comment Block WITH Leading Asterisk (JavaDoc-style)             │
+ * │ Example: Lines like " * - item" in test.ts line 147                         │
+ * ├─────────────────────────────────────────────────────────────────────────────┤
+ * │ Source:    " * - First item"                                                │
+ * │ Rendered:  "  • First item"  (asterisk hidden, bullet replaces dash)        │
+ * │                                                                             │
+ * │ Strategy:                                                                   │
+ * │   1. hideAsteriskPrefixes() hides " * " prefix first                        │
+ * │   2. addLineIndentation() adds "  " with 1rem margin at position 0          │
+ * │   3. parseLists() finds "- " AFTER the hidden prefix                        │
+ * │      - markerPosition.start.character > 0 (not at column 0)                 │
+ * │      - Uses standard "• " with trailing space, no margin adjustment         │
+ * │   4. Result: proper alignment because the list marker starts after the      │
+ * │      hidden asterisk prefix, and spacing works naturally                    │
+ * └─────────────────────────────────────────────────────────────────────────────┘
+ * 
+ * ┌─────────────────────────────────────────────────────────────────────────────┐
+ * │ SCENARIO 3: Comment Block WITHOUT Leading Asterisk                          │
+ * │ Example: Lines like "- item" in test.ts line 24                             │
+ * ├─────────────────────────────────────────────────────────────────────────────┤
+ * │ Source:    "- First item"  (inside /​* ... *​/ block, no leading asterisk)   │
+ * │ Rendered:  "  • First item"  (indented to align with text above)            │
+ * │                                                                             │
+ * │ THE PROBLEM:                                                                │
+ * │   - The "- " marker starts at column 0                                      │
+ * │   - addLineIndentation() adds "  " with 1rem margin at position 0           │
+ * │   - When we hide "- " and insert "•", the hidden text's residual space      │
+ * │     creates ~2-3 extra characters of gap between bullet and text            │
+ * │                                                                             │
+ * │ THE SOLUTION:                                                               │
+ * │   When isAtColumnZero && !isMarkdownDocument:                               │
+ * │   1. beforeRenderOptions.contentText = '•' (NO trailing space)              │
+ * │   2. beforeRenderOptions.margin = '0 0 0 2ch' (push bullet right to align)  │
+ * │   3. renderOpts.after = { margin: '0 0 0 -2ch' } (pull text LEFT to reduce  │
+ * │      the gap caused by hidden marker's residual space)                      │
+ * │                                                                             │
+ * │   The negative after-margin compensates for the hidden "- " that still      │
+ * │   takes up horizontal space, bringing the text closer to the bullet.        │
+ * └─────────────────────────────────────────────────────────────────────────────┘
+ * 
+ * INDENTED LIST ITEMS (e.g., "  - Nested item"):
+ *   - The leading whitespace is captured as 'indent' by the regex
+ *   - markerPosition.start.character > 0, so NO special margin adjustments
+ *   - Standard "• " or "1. " with trailing space works correctly
+ *   - The source indent naturally positions the bullet
+ * 
+ * KEY FUNCTIONS:
+ *   - hideAsteriskPrefixes(): Hides " * " or "* " prefixes in JavaDoc comments
+ *   - addLineIndentation(): Adds "  " with 1rem margin to ALL comment lines
+ *   - parseLists(): Handles bullets (•), numbers (1.), with column-0 adjustments
+ *   - parseTaskLists(): Handles checkboxes (☐/☑), with column-0 adjustments
+ * 
+ * ============================================================================
+ * HOW THE RENDERING WORKS (GENERAL):
+ * ============================================================================
  * 
  * 1. COMMENT EXTRACTION:
- *    - Scans document for multi-line comment blocks only (Java/C-style '/ * ... * /' and Python triple-quote)
+ *    - Scans document for multi-line comment blocks (Java/C-style and Python triple-quote)
  *    - Extracts clean comment text by removing comment markers
  *    - Preserves original document positions for accurate decoration placement
  * 
@@ -29,7 +114,7 @@ import * as vscode from 'vscode';
  *    - Formatted content appears in exact same position with applied styling
  * 
  * 5. DECORATION TYPES:
- *    - 'replace': Makes original markdown text transparent and tiny
+ *    - 'replace': Makes original markdown text transparent and tiny (opacity:0, letterSpacing:-999px)
  *    - 'bold', 'italic', etc.: Placeholder types that trigger the before content rendering
  *    - All actual styling is applied via renderOptions.before properties
  * 
@@ -38,16 +123,20 @@ import * as vscode from 'vscode';
  * - *italic text*
  * - \`inline code\`
  * - ~~strikethrough~~
- * - # Header 1 (bold, underlined, colored)
- * - ## Header 2 (bold, colored)
- * - ### Header 3 (bold, colored)
+ * - # Header 1 through ####### Header 7
+ * - Bullet lists (- or *)
+ * - Numbered lists (1. 2. etc)
+ * - Task lists (- [ ] or - [x])
+ * - [links](url) and ![images](url)
  * 
  * SUPPORTED COMMENT TYPES (BLOCK ONLY):
- * - Multi-line: \/\* comment \*\/ (JavaScript, TypeScript, Java, C#, C/C++, Go, Rust, PHP)
+ * - Multi-line: Java/C-style block comments (JavaScript, TypeScript, Java, C#, C/C++, Go, Rust, PHP)
  * - Multi-line: triple-quote comment (Python)
+ * - Markdown files (.md, .instructions)
  * 
  * LIMITATIONS:
  * - Cannot truly remove text from document (VS Code API limitation)
+ * - Hidden text still occupies residual space (compensated with negative margins)
  * - Complex nested markdown may not render perfectly
  * - Performance impact on very large files with many comments
  */
@@ -94,11 +183,19 @@ export class MarkdownCommentProvider {
         }
     }
 
-    /**
-     * Check if the current cursor position is inside a comment block
-     * @param document The document to check
-     * @param line The line number to check
-     * @returns true if the line is inside a comment block (and not a markdown file)
+    /*
+     * ## isInCommentBlock(document, line) ⇒ {boolean}
+     * Check if the current cursor position is inside a comment block.
+     * 
+     * **Kind:** method  
+     * **Access:** public
+     * 
+     * ## Parameters
+     * - `document` **{vscode.TextDocument}** - The document to check
+     * - `line` **{number}** - The line number to check
+     * 
+     * ## Returns
+     * **{boolean}** - `true` if the line is inside a comment block (and not a markdown file)
      */
     public isInCommentBlock(document: vscode.TextDocument, line: number): boolean {
         // Don't treat markdown files as comment blocks for ESC key handling
@@ -123,9 +220,18 @@ export class MarkdownCommentProvider {
         return false;
     }
 
-    /**
-     * Exit comment block text mode by moving cursor outside the block
-     * @param editor The text editor
+    /*
+     * ## exitCommentBlockTextMode(editor) ⇒ {void}
+     * Exit comment block text mode by moving cursor outside the block.
+     * 
+     * **Kind:** method  
+     * **Access:** public
+     * 
+     * ## Parameters
+     * - `editor` **{vscode.TextEditor}** - The text editor
+     * 
+     * ## Returns
+     * **{void}**
      */
     public exitCommentBlockTextMode(editor: vscode.TextEditor): void {
         const document = editor.document;
@@ -162,12 +268,31 @@ export class MarkdownCommentProvider {
                        vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast;
         
         // Dedicated decoration type for line indentation with vertical bar via border
+        // The backgroundColor covers VS Code's indent guides which otherwise show through
         this.decorationTypes.set('indent', vscode.window.createTextEditorDecorationType({
             isWholeLine: true,
             borderWidth: '0 0 0 2px',
             borderStyle: 'solid', 
-            light: { borderColor: '#888888' },
-            dark: { borderColor: '#666666' }
+            light: { 
+                borderColor: '#888888',
+                backgroundColor: new vscode.ThemeColor('editor.background')
+            },
+            dark: { 
+                borderColor: '#666666',
+                backgroundColor: new vscode.ThemeColor('editor.background')
+            }
+        }));
+        
+        // Background cover for markdown files to hide VS Code's indent guides
+        // Same as 'indent' but without the left border
+        this.decorationTypes.set('markdownLine', vscode.window.createTextEditorDecorationType({
+            isWholeLine: true,
+            light: { 
+                backgroundColor: new vscode.ThemeColor('editor.background')
+            },
+            dark: { 
+                backgroundColor: new vscode.ThemeColor('editor.background')
+            }
         }));
         
         // Header decorations with theme-aware styling
@@ -270,45 +395,65 @@ export class MarkdownCommentProvider {
             textDecoration: 'none; font-size: 0.01em'
         }));
         
-        // Syntax highlighting colors for code blocks - theme aware
+        // Code block background - inverted theme (light bg in dark mode, dark bg in light mode)
+        // This creates visual distinction for code blocks within comments
+        this.decorationTypes.set('codeBlockLine', vscode.window.createTextEditorDecorationType({
+            isWholeLine: true,
+            light: { 
+                backgroundColor: '#1e1e1e',  // VS Code dark theme default background
+                borderWidth: '0 0 0 2px',
+                borderStyle: 'solid',
+                borderColor: '#888888'
+            },
+            dark: { 
+                backgroundColor: '#f8f8f8',  // Light background for dark themes
+                borderWidth: '0 0 0 2px',
+                borderStyle: 'solid',
+                borderColor: '#666666'
+            }
+        }));
+        
+        // Syntax highlighting colors for code blocks - INVERTED theme aware
+        // In light mode, use dark theme colors (for dark code block background)
+        // In dark mode, use light theme colors (for light code block background)
         this.decorationTypes.set('syntax-keyword', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #AF00DB' },
-            dark: { textDecoration: 'none; color: #C586C0' },
+            light: { textDecoration: 'none; color: #C586C0' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #AF00DB' },   // Light theme color on dark (inverted)
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-string', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #A31515' },
-            dark: { textDecoration: 'none; color: #CE9178' },
+            light: { textDecoration: 'none; color: #CE9178' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #A31515' },   // Light theme color on dark (inverted)
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-number', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #098658' },
-            dark: { textDecoration: 'none; color: #B5CEA8' },
+            light: { textDecoration: 'none; color: #B5CEA8' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #098658' },   // Light theme color on dark (inverted)
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-function', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #795E26' },
-            dark: { textDecoration: 'none; color: #DCDCAA' },
+            light: { textDecoration: 'none; color: #DCDCAA' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #795E26' },   // Light theme color on dark (inverted)
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-comment', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #008000' },
-            dark: { textDecoration: 'none; color: #6A9955' },
+            light: { textDecoration: 'none; color: #6A9955' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #008000' },   // Light theme color on dark (inverted)
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-variable', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #001080' },
-            dark: { textDecoration: 'none; color: #9CDCFE' },
+            light: { textDecoration: 'none; color: #9CDCFE' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #0000AA' },   // Darker blue visible on light bg
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-property', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #001080' },
-            dark: { textDecoration: 'none; color: #9CDCFE' },
+            light: { textDecoration: 'none; color: #9CDCFE' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #0000AA' },   // Darker blue visible on light bg
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
         this.decorationTypes.set('syntax-operator', vscode.window.createTextEditorDecorationType({
-            light: { textDecoration: 'none; color: #000000' },
-            dark: { textDecoration: 'none; color: #D4D4D4' },
+            light: { textDecoration: 'none; color: #D4D4D4' },  // Dark theme color on light (inverted)
+            dark: { textDecoration: 'none; color: #505050' },   // Medium gray visible on light bg (#f8f8f8)
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         }));
     }
@@ -370,7 +515,8 @@ export class MarkdownCommentProvider {
                     endLine: document.lineCount - 1,
                     startChar: 0,
                     endChar: document.lineAt(document.lineCount - 1).text.length,
-                    originalLines: text.split('\n')
+                    originalLines: text.split('\n'),
+                    renderContext: RenderContext.MARKDOWN_FILE
                 };
                 commentBlocks = [markdownBlock];
                 this.parseMarkdownFile(text, markdownBlock, allDecorations, document, -1); // Pass -1 to include all lines
@@ -443,6 +589,51 @@ export class MarkdownCommentProvider {
         // Reset the last active line to force a re-render
         this.lastActiveLine = -1;
         this.updateDecorations(document);
+    }
+
+    /**
+     * Get all decorations for a document (for testing purposes).
+     * This forces a fresh parse and returns the raw decoration map without filtering.
+     */
+    public getDecorations(document: vscode.TextDocument): Map<string, vscode.DecorationOptions[]> {
+        // Ensure decoration types are initialized
+        if (this.decorationTypes.size === 0) {
+            this.initializeDecorationTypes();
+        }
+        
+        // Clear cache to ensure fresh parse
+        const docUri = document.uri.toString();
+        this.cachedDecorations.delete(docUri);
+        this.cachedCommentBlocks.delete(docUri);
+
+        const allDecorations: Map<string, vscode.DecorationOptions[]> = new Map();
+        this.decorationTypes.forEach((_, key) => {
+            allDecorations.set(key, []);
+        });
+
+        const text = document.getText();
+
+        // Special handling for markdown files
+        if (document.languageId === 'markdown' || document.languageId === 'instructions') {
+            const markdownBlock: CommentBlock = {
+                text: text,
+                startLine: 0,
+                endLine: document.lineCount - 1,
+                startChar: 0,
+                endChar: document.lineAt(document.lineCount - 1).text.length,
+                originalLines: text.split('\n'),
+                renderContext: RenderContext.MARKDOWN_FILE
+            };
+            this.parseMarkdownFile(text, markdownBlock, allDecorations, document, -1);
+        } else {
+            // Extract and process comments from code files
+            const commentBlocks = this.extractComments(text, document.languageId);
+            commentBlocks.forEach(comment => {
+                this.parseMarkdownInComment(comment, allDecorations, document, -1);
+            });
+        }
+
+        return allDecorations;
     }
 
     private extractComments(text: string, languageId: string): CommentBlock[] {
@@ -577,21 +768,70 @@ export class MarkdownCommentProvider {
         }
     }
 
+    /**
+     * Detect the rendering context for a comment block.
+     * This determines how markdown processing and decoration will be handled.
+     */
+    private detectRenderContext(document: vscode.TextDocument, comment: CommentBlock): RenderContext {
+        // Check if this is a markdown file
+        if (document.languageId === 'markdown' || document.languageId === 'instructions') {
+            return RenderContext.MARKDOWN_FILE;
+        }
+        
+        // Check if this is a single-line comment
+        if (comment.startLine === comment.endLine) {
+            return RenderContext.SINGLE_LINE_COMMENT;
+        }
+        
+        // For multi-line comments, check if they use asterisk prefixes
+        // Look at the original lines (excluding first and last which are delimiters)
+        if (comment.originalLines && comment.originalLines.length > 2) {
+            // Check middle lines for asterisk prefix pattern
+            let hasAsteriskPrefix = false;
+            for (let i = 1; i < comment.originalLines.length - 1; i++) {
+                const line = comment.originalLines[i];
+                // Check for " * " or "* " or " *" at the start (JavaDoc style)
+                if (/^\s*\*(\s|$)/.test(line)) {
+                    hasAsteriskPrefix = true;
+                    break;
+                }
+            }
+            
+            if (hasAsteriskPrefix) {
+                return RenderContext.COMMENT_WITH_ASTERISK;
+            }
+        }
+        
+        // Default: comment without asterisk prefixes
+        return RenderContext.COMMENT_WITHOUT_ASTERISK;
+    }
+
     private parseMarkdownInComment(
         comment: CommentBlock, 
         decorations: Map<string, vscode.DecorationOptions[]>,
         document: vscode.TextDocument,
         activeLine: number
     ): void {
-        const text = comment.text;
-        const isSingleLine = comment.startLine === comment.endLine;
+        // Detect and store the rendering context
+        const context = this.detectRenderContext(document, comment);
+        comment.renderContext = context;
         
-        if (isSingleLine) {
-            // Single-line comments: limited features only (no headers, lists, code blocks, gray overlay)
-            this.parseSingleLineComment(text, comment, decorations, document, activeLine);
-        } else {
-            // Multi-line comments: full markdown support
-            this.parseMultiLineComment(text, comment, decorations, document, activeLine);
+        const text = comment.text;
+        
+        switch (context) {
+            case RenderContext.SINGLE_LINE_COMMENT:
+                this.parseSingleLineComment(text, comment, decorations, document, activeLine);
+                break;
+            case RenderContext.COMMENT_WITH_ASTERISK:
+            case RenderContext.COMMENT_WITHOUT_ASTERISK:
+                // Both multi-line comment types use the same handler for now
+                // Phase 3 will split these further for list handling
+                this.parseMultiLineComment(text, comment, decorations, document, activeLine);
+                break;
+            case RenderContext.MARKDOWN_FILE:
+                // This shouldn't be reached here - markdown files go through parseMarkdownFile
+                this.parseMarkdownFile(text, comment, decorations, document, activeLine);
+                break;
         }
     }
 
@@ -613,7 +853,7 @@ export class MarkdownCommentProvider {
         
         // Parse inline formatting only - pass false for applyGrayColor to preserve original comment color
         this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine, codeBlockRanges, false);
-        this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, codeBlockRanges, false);
+        this.parseAndReplace(text, /(?<!\*)\*([^*\n]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, codeBlockRanges, false);
         this.parseAndReplace(text, /(?<!`)`([^`\n]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, codeBlockRanges, false);
         this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, codeBlockRanges, false);
     }
@@ -680,6 +920,9 @@ export class MarkdownCommentProvider {
         // Markdown files: full markdown support without comment-specific processing
         // NO gray color overlay, NO comment delimiter replacement
         
+        // Apply background to all lines to cover VS Code's indent guides
+        this.applyMarkdownLineBackground(comment, decorations, document, activeLine);
+        
         // Identify HTML comment regions to exclude from markdown processing
         const htmlCommentRanges: Array<{start: number, end: number}> = [];
         const htmlCommentPattern = /<!--[\s\S]*?-->/g;
@@ -707,7 +950,7 @@ export class MarkdownCommentProvider {
         // Process ALL inline formatting FIRST, before any headers or lists
         // Pass false for applyLineStartIndent since this is a pure markdown file, not a comment block
         this.parseAndReplace(text, /\*\*(.*?)\*\*/g, 'bold', comment, decorations, document, activeLine, exclusionRanges, true, false);
-        this.parseAndReplace(text, /(?<!\*)\*([^*]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, exclusionRanges, true, false);
+        this.parseAndReplace(text, /(?<!\*)\*([^*\n]+?)\*(?!\*)/g, 'italic', comment, decorations, document, activeLine, exclusionRanges, true, false);
         // Match single backticks but not triple backticks (code blocks) - [^`\n]+ prevents matching across lines
         this.parseAndReplace(text, /(?<!`)`([^`\n]+)`(?!`)/g, 'code', comment, decorations, document, activeLine, exclusionRanges, true, false);
         this.parseAndReplace(text, /~~(.*?)~~/g, 'strikethrough', comment, decorations, document, activeLine, exclusionRanges, true, false);
@@ -715,7 +958,6 @@ export class MarkdownCommentProvider {
         // Process links and images (must be before lists to avoid conflicts)
         this.parseLinks(text, comment, decorations, document, activeLine, exclusionRanges);
         this.parseImages(text, comment, decorations, document, activeLine, exclusionRanges);
-        
         // Process task lists
         this.parseTaskLists(text, comment, decorations, document, activeLine, exclusionRanges);
         
@@ -816,6 +1058,11 @@ export class MarkdownCommentProvider {
         const replaceList = decorations.get('replace') || [];
         const indentList = decorations.get('indent') || [];
         
+        // Initialize the set to track lines with asterisk prefixes
+        if (!comment.linesWithAsteriskPrefix) {
+            comment.linesWithAsteriskPrefix = new Set<number>();
+        }
+        
         // Process each line in the comment block (skip first and last which are /* and */)
         for (let i = 1; i < comment.originalLines.length - 1; i++) {
             const line = comment.originalLines[i];
@@ -840,6 +1087,9 @@ export class MarkdownCommentProvider {
                 replaceList.push({
                     range: new vscode.Range(startPos, endPos)
                 });
+                
+                // Track that this line had an asterisk prefix
+                comment.linesWithAsteriskPrefix.add(lineNumber);
                 
                 // Add 1ch indent at the position where content will start (after the hidden prefix)
                 indentList.push({
@@ -867,6 +1117,9 @@ export class MarkdownCommentProvider {
                 replaceList.push({
                     range: new vscode.Range(startPos, endPos)
                 });
+                
+                // Track that this line had an asterisk prefix
+                comment.linesWithAsteriskPrefix.add(lineNumber);
                 
                 // No need to add indent here since addLineIndentation handles it globally
             }
@@ -950,6 +1203,41 @@ export class MarkdownCommentProvider {
         return ranges;
     }
 
+    /**
+     * Get code block ranges as LINE INDICES (0-based) relative to cleaned text.
+     * Returns ranges where startLine is the first content line (after opening ```)
+     * and endLine is the last content line (before closing ```).
+     */
+    private getCodeBlockLineRanges(text: string): Array<{startLine: number, endLine: number}> {
+        const ranges: Array<{startLine: number, endLine: number}> = [];
+        const lines = text.split('\n');
+        let inCodeBlock = false;
+        let blockStartLine = 0;
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (/^```/.test(line)) {
+                if (!inCodeBlock) {
+                    // Start of code block - content starts on next line
+                    inCodeBlock = true;
+                    blockStartLine = i + 1;
+                } else {
+                    // End of code block - content ends on previous line
+                    // Only add if there's actual content (startLine <= i-1)
+                    if (blockStartLine <= i - 1) {
+                        ranges.push({
+                            startLine: blockStartLine,
+                            endLine: i - 1
+                        });
+                    }
+                    inCodeBlock = false;
+                }
+            }
+        }
+        
+        return ranges;
+    }
+
     private applySyntaxHighlightingToCodeBlocks(
         text: string,
         comment: CommentBlock,
@@ -958,6 +1246,9 @@ export class MarkdownCommentProvider {
         activeLine: number,
         codeBlockRanges: Array<{start: number, end: number}>
     ): void {
+        // Apply inverted background to all code block lines (including ``` delimiters)
+        this.applyCodeBlockBackground(comment, decorations, document, activeLine);
+        
         for (const codeBlock of codeBlockRanges) {
             const codeContent = text.substring(codeBlock.start, codeBlock.end);
             
@@ -971,7 +1262,7 @@ export class MarkdownCommentProvider {
             this.applySyntaxPattern(codeContent, comments, 'syntax-comment', codeBlock.start, comment, decorations, document, activeLine, text);
             
             // Keywords
-            const keywords = /\b(const|let|var|function|class|if|else|for|while|return|import|export|from|async|await|new|this|super|extends|implements|interface|type|enum|public|private|protected|static|readonly|null|undefined|true|false|void|any|string|number|boolean)\b/g;
+            const keywords = /\b(const|let|var|function|class|if|else|for|while|return|import|export|from|async|await|new|this|super|extends|implements|interface|type|enum|public|private|protected|static|readonly|null|undefined|true|false|void|any|string|number|boolean|try|catch|finally|throw|typeof|instanceof|in|of|delete|default|switch|case|break|continue|do|with|yield|debugger)\b/g;
             this.applySyntaxPattern(codeContent, keywords, 'syntax-keyword', codeBlock.start, comment, decorations, document, activeLine, text);
             
             // Function calls
@@ -981,9 +1272,123 @@ export class MarkdownCommentProvider {
             // Numbers
             const numbers = /\b\d+\.?\d*\b/g;
             this.applySyntaxPattern(codeContent, numbers, 'syntax-number', codeBlock.start, comment, decorations, document, activeLine, text);
+            
+            // Operators and punctuation (=, +, -, *, /, comma, semicolon, brackets, etc.)
+            const operators = /[=+\-*/<>!&|^~%?:,;()\[\]{}]+/g;
+            this.applySyntaxPattern(codeContent, operators, 'syntax-operator', codeBlock.start, comment, decorations, document, activeLine, text);
+            
+            // Identifiers (variables, parameters) - match any remaining words not already colored
+            const identifiers = /\b[a-zA-Z_$][a-zA-Z0-9_$]*\b/g;
+            this.applySyntaxPattern(codeContent, identifiers, 'syntax-variable', codeBlock.start, comment, decorations, document, activeLine, text);
         }
     }
 
+    private applyCodeBlockBackground(
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number
+    ): void {
+        // Find the actual document lines for the code block by scanning the original document
+        
+        const codeBlockLineList = decorations.get('codeBlockLine') || [];
+        
+        // Scan the document lines within this comment block to find ``` markers
+        let inCodeBlock = false;
+        let codeBlockStartLine = -1;
+        
+        // Determine if this is a markdown file (no comment prefixes like " * ")
+        const isMarkdownFile = document.languageId === 'markdown' || document.languageId === 'instructions';
+        
+        for (let lineNum = comment.startLine; lineNum <= comment.endLine; lineNum++) {
+            const lineText = document.lineAt(lineNum).text;
+            
+            // For markdown files: only match ``` at start of line (no leading content)
+            // For code comments: match ``` with possible leading " * " prefix
+            const codeBlockPattern = isMarkdownFile 
+                ? /^```/  // Markdown: must start at column 0
+                : /^\s*\*?\s*```/;  // Code comments: allow whitespace and optional *
+            
+            if (codeBlockPattern.test(lineText)) {
+                if (!inCodeBlock) {
+                    // Opening ```
+                    inCodeBlock = true;
+                    codeBlockStartLine = lineNum;
+                } else {
+                    // Closing ``` - apply background from start to this line
+                    for (let bgLine = codeBlockStartLine; bgLine <= lineNum; bgLine++) {
+                        if (bgLine === activeLine) {
+                            continue;
+                        }
+                        
+                        const lineStart = new vscode.Position(bgLine, 0);
+                        const lineEnd = new vscode.Position(bgLine, Number.MAX_SAFE_INTEGER);
+                        
+                        codeBlockLineList.push({
+                            range: new vscode.Range(lineStart, lineEnd)
+                        });
+                    }
+                    inCodeBlock = false;
+                    codeBlockStartLine = -1;
+                }
+            }
+        }
+        
+        decorations.set('codeBlockLine', codeBlockLineList);
+    }
+
+    private applyMarkdownLineBackground(
+        comment: CommentBlock,
+        decorations: Map<string, vscode.DecorationOptions[]>,
+        document: vscode.TextDocument,
+        activeLine: number
+    ): void {
+        // Apply background to all lines in markdown files to cover VS Code's indent guides
+        // BUT skip lines that are inside code blocks (they get codeBlockLine instead)
+        const markdownLineList = decorations.get('markdownLine') || [];
+        
+        // First, identify which lines are inside code blocks
+        const codeBlockLines = new Set<number>();
+        let inCodeBlock = false;
+        
+        for (let lineNum = comment.startLine; lineNum <= comment.endLine; lineNum++) {
+            const lineText = document.lineAt(lineNum).text;
+            
+            if (/^```/.test(lineText)) {
+                if (!inCodeBlock) {
+                    inCodeBlock = true;
+                    codeBlockLines.add(lineNum); // Include the opening ```
+                } else {
+                    codeBlockLines.add(lineNum); // Include the closing ```
+                    inCodeBlock = false;
+                }
+            } else if (inCodeBlock) {
+                codeBlockLines.add(lineNum);
+            }
+        }
+        
+        // Apply markdownLine background only to non-code-block lines
+        for (let lineNum = comment.startLine; lineNum <= comment.endLine; lineNum++) {
+            // Skip the active line
+            if (lineNum === activeLine) {
+                continue;
+            }
+            
+            // Skip lines inside code blocks
+            if (codeBlockLines.has(lineNum)) {
+                continue;
+            }
+            
+            const lineStart = new vscode.Position(lineNum, 0);
+            const lineEnd = new vscode.Position(lineNum, Number.MAX_SAFE_INTEGER);
+            
+            markdownLineList.push({
+                range: new vscode.Range(lineStart, lineEnd)
+            });
+        }
+        
+        decorations.set('markdownLine', markdownLineList);
+    }
 
 
     private applySyntaxPattern(
@@ -1029,12 +1434,17 @@ export class MarkdownCommentProvider {
         comment: CommentBlock,
         document: vscode.TextDocument,
         decorations: Map<string, vscode.DecorationOptions[]>,
-        codeBlockRanges: Array<{start: number, end: number}>,
+        _codeBlockRanges: Array<{start: number, end: number}>,  // Unused - kept for signature compatibility
         text: string
     ): void {
         const grayList = decorations.get('commentGray') || [];
         
-        if (codeBlockRanges.length === 0) {
+        // Use line-based ranges for accurate gray color exclusion
+        const codeBlockLineRanges = this.getCodeBlockLineRanges(text);
+        const cleanedLines = text.split('\n');
+        const totalCleanedLines = cleanedLines.length;
+        
+        if (codeBlockLineRanges.length === 0) {
             // No code blocks, apply gray to entire comment
             grayList.push({
                 range: new vscode.Range(
@@ -1043,33 +1453,33 @@ export class MarkdownCommentProvider {
                 )
             });
         } else {
-            // Apply gray to regions between code blocks
-            let lastEnd = 0;
-            
-            for (const codeBlock of codeBlockRanges) {
-                if (lastEnd < codeBlock.start) {
-                    // Add gray for the region before this code block
-                    const startPos = this.getDocumentPosition(lastEnd, lastEnd, comment, document, text);
-                    const endPos = this.getDocumentPosition(codeBlock.start, codeBlock.start, comment, document, text);
-                    
-                    if (startPos && endPos) {
-                        grayList.push({
-                            range: new vscode.Range(startPos.start, endPos.start)
-                        });
-                    }
+            // Build a set of line indices (in cleaned text) that are inside code blocks
+            const codeBlockLines = new Set<number>();
+            for (const range of codeBlockLineRanges) {
+                for (let i = range.startLine; i <= range.endLine; i++) {
+                    codeBlockLines.add(i);
                 }
-                lastEnd = codeBlock.end;
+                // Also mark the ``` delimiter lines as code block lines (so they don't get gray)
+                if (range.startLine > 0) {
+                    codeBlockLines.add(range.startLine - 1); // Opening ```
+                }
+                codeBlockLines.add(range.endLine + 1); // Closing ```
             }
             
-            // Add gray for any remaining content after the last code block
-            if (lastEnd < text.length) {
-                const startPos = this.getDocumentPosition(lastEnd, lastEnd, comment, document, text);
-                const endPos = new vscode.Position(comment.endLine, document.lineAt(comment.endLine).text.length);
-                
-                if (startPos) {
-                    grayList.push({
-                        range: new vscode.Range(startPos.start, endPos)
-                    });
+            // Apply gray to each line that is NOT in a code block
+            for (let cleanedLineIdx = 0; cleanedLineIdx < totalCleanedLines; cleanedLineIdx++) {
+                if (!codeBlockLines.has(cleanedLineIdx)) {
+                    // Map cleaned line index to document line
+                    const docLine = comment.startLine + cleanedLineIdx;
+                    if (docLine <= comment.endLine) {
+                        const lineText = document.lineAt(docLine).text;
+                        grayList.push({
+                            range: new vscode.Range(
+                                new vscode.Position(docLine, 0),
+                                new vscode.Position(docLine, lineText.length)
+                            )
+                        });
+                    }
                 }
             }
         }
@@ -1146,12 +1556,9 @@ export class MarkdownCommentProvider {
         exclusionRanges: Array<{start: number, end: number}> = []
     ): void {
         // Match unordered list items: - item or * item (but not ** for bold)
-        const bulletPattern = /^(\s*)[-*]\s+(.*)$/gm;
+        const bulletPattern = /^([ \t]*)(?:-|\*(?!\*))\s+(.*)$/gm;
         // Match ordered list items: 1. item, 2. item, etc.
-        const numberedPattern = /^(\s*)(\d+)\.\s+(.*)$/gm;
-        // Task list pattern to skip - no ^ anchor since we're testing extracted text
-        const taskPattern = /^\s*-\s+\[([ xX])\]/;
-        
+        const numberedPattern = /^([ \t]*)(\d+)\.\s+(.*)$/gm;
         let match;
         const replaceList = decorations.get('replace') || [];
         
@@ -1160,7 +1567,6 @@ export class MarkdownCommentProvider {
         while ((match = bulletPattern.exec(text)) !== null) {
             // Check if match is within any exclusion range (code blocks, HTML comments)
             const matchStart = match.index;
-            const matchEnd = matchStart + match[0].length;
             const isInExcludedRange = exclusionRanges.some(range => 
                 matchStart >= range.start && matchStart < range.end
             );
@@ -1183,10 +1589,9 @@ export class MarkdownCommentProvider {
                 continue;
             }
             
+            const prefixLength = match[0].length - indent.length - content.length;
             const markerStart = match.index + indent.length;
-            const markerEnd = markerStart + 2; // "- " or "* "
-            
-            // Get position for the bullet marker
+            const markerEnd = markerStart + prefixLength;
             const markerPosition = this.getDocumentPosition(markerStart, markerEnd, comment, document, text);
             
             if (markerPosition) {
@@ -1194,22 +1599,52 @@ export class MarkdownCommentProvider {
                 if (markerPosition.start.line === activeLine) {
                     continue;
                 }
-                // Hide the original marker (- or *)
+
+                // Hide the original bullet marker (e.g., "* " or "- ")
                 replaceList.push({
                     range: new vscode.Range(markerPosition.start, markerPosition.end)
                 });
+
+                const isMarkdownDocument = document.languageId === 'markdown' || document.languageId === 'instructions';
+                // Check if this line had an asterisk prefix that was hidden
+                // If so, the text started after " * " and is already positioned correctly
+                const lineHadAsteriskPrefix = comment.linesWithAsteriskPrefix?.has(markerPosition.start.line) ?? false;
+                // Special handling needed only for non-markdown, column-0 bullets WITHOUT asterisk prefix
+                const needsSpecialColumnZeroHandling = !isMarkdownDocument && 
+                    markerPosition.start.character === 0 && 
+                    !lineHadAsteriskPrefix;
                 
-                // Replace with bullet character with margin-left for indent (2ch = 1ch base + 1ch list)
+                const beforeRenderOptions: vscode.ThemableDecorationAttachmentRenderOptions = {
+                    contentText: '• ',
+                    color: '#808080'
+                };
+                
+                // For non-markdown documents with bullets at column 0 (no asterisk prefix),
+                // the hidden "- " marker still takes up some space. We need to:
+                // 1. Use margin to position the bullet correctly under text above
+                // 2. Remove trailing space from bullet since hidden marker provides spacing
+                // 3. Use after decoration with negative margin to pull text closer to bullet
+                if (needsSpecialColumnZeroHandling) {
+                    beforeRenderOptions.contentText = '•';  // No trailing space
+                    beforeRenderOptions.margin = '0 0 0 2ch';
+                }
+
                 const decorationList = decorations.get('bold') || [];
+                const renderOpts: vscode.DecorationRenderOptions = {
+                    before: beforeRenderOptions
+                };
+                
+                // For column-0 bullets (no asterisk prefix), add after decoration to pull text left (reduce gap)
+                if (needsSpecialColumnZeroHandling) {
+                    renderOpts.after = {
+                        contentText: '',
+                        margin: '0 0 0 -2ch'  // Pull text left to reduce gap from hidden marker
+                    };
+                }
+                
                 decorationList.push({
                     range: new vscode.Range(markerPosition.start, markerPosition.start),
-                    renderOptions: {
-                        before: {
-                            contentText: '• ',
-                            color: '#808080',
-                            margin: '0 0 0 2ch'  // 2 character width left margin for indent
-                        }
-                    }
+                    renderOptions: renderOpts
                 });
                 decorations.set('bold', decorationList);
             }
@@ -1220,7 +1655,6 @@ export class MarkdownCommentProvider {
         while ((match = numberedPattern.exec(text)) !== null) {
             // Check if match is within any exclusion range (code blocks, HTML comments)
             const matchStart = match.index;
-            const matchEnd = matchStart + match[0].length;
             const isInExcludedRange = exclusionRanges.some(range => 
                 matchStart >= range.start && matchStart < range.end
             );
@@ -1231,7 +1665,6 @@ export class MarkdownCommentProvider {
             
             const indent = match[1] || '';
             const number = match[2];
-            const content = match[3];
             const markerStart = match.index + indent.length;
             const markerEnd = markerStart + number.length + 2; // "1. " or "2. " etc.
             
@@ -1249,18 +1682,42 @@ export class MarkdownCommentProvider {
                     range: new vscode.Range(markerPosition.start, markerPosition.end)
                 });
                 
-                // Replace with styled number with margin-left for indent (2ch = 1ch base + 1ch list)
+                const isMarkdownDocument = document.languageId === 'markdown' || document.languageId === 'instructions';
+                // Check if this line had an asterisk prefix that was hidden
+                const lineHadAsteriskPrefix = comment.linesWithAsteriskPrefix?.has(markerPosition.start.line) ?? false;
+                // Special handling needed only for non-markdown, column-0 numbers WITHOUT asterisk prefix
+                const needsSpecialColumnZeroHandling = !isMarkdownDocument && 
+                    markerPosition.start.character === 0 && 
+                    !lineHadAsteriskPrefix;
+                
+                const beforeRenderOptions: vscode.ThemableDecorationAttachmentRenderOptions = {
+                    contentText: `${number}. `,
+                    color: '#808080',
+                    fontWeight: 'bold'
+                };
+                
+                // For non-markdown documents with numbers at column 0 (no asterisk prefix), position correctly
+                if (needsSpecialColumnZeroHandling) {
+                    beforeRenderOptions.contentText = `${number}.`;  // No trailing space
+                    beforeRenderOptions.margin = '0 0 0 2ch';
+                }
+                
                 const decorationList = decorations.get('bold') || [];
+                const renderOpts: vscode.DecorationRenderOptions = {
+                    before: beforeRenderOptions
+                };
+                
+                // For column-0 numbers (no asterisk prefix), add after decoration to pull text left (reduce gap)
+                if (needsSpecialColumnZeroHandling) {
+                    renderOpts.after = {
+                        contentText: '',
+                        margin: '0 0 0 -2ch'  // Pull text left to reduce gap from hidden marker
+                    };
+                }
+                
                 decorationList.push({
                     range: new vscode.Range(markerPosition.start, markerPosition.start),
-                    renderOptions: {
-                        before: {
-                            contentText: `${number}. `,
-                            color: '#808080',
-                            fontWeight: 'bold',
-                            margin: '0 0 0 2ch'  // 2 character width left margin for indent
-                        }
-                    }
+                    renderOptions: renderOpts
                 });
                 decorations.set('bold', decorationList);
             }
@@ -1278,7 +1735,7 @@ export class MarkdownCommentProvider {
         codeBlockRanges: Array<{start: number, end: number}>
     ): void {
         // Match markdown links: [text](url)
-        const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+        const linkPattern = /\[([^\]\n]+)\]\(([^)\n]+)\)/g;
         let match;
         const replaceList = decorations.get('replace') || [];
         
@@ -1339,7 +1796,7 @@ export class MarkdownCommentProvider {
         codeBlockRanges: Array<{start: number, end: number}>
     ): void {
         // Match markdown images: ![alt](url)
-        const imagePattern = /!\[([^\]]+)\]\(([^)]+)\)/g;
+        const imagePattern = /!\[([^\]\n]+)\]\(([^)\n]+)\)/g;
         let match;
         const replaceList = decorations.get('replace') || [];
         
@@ -1438,19 +1895,45 @@ export class MarkdownCommentProvider {
                     range: new vscode.Range(markerPosition.start, markerPosition.end)
                 });
                 
-                // Replace with checkbox character with margin-left for indent (2ch = 1ch base + 1ch list)
+                const isMarkdownDocument = document.languageId === 'markdown' || document.languageId === 'instructions';
+                // Check if this line had an asterisk prefix that was hidden
+                const lineHadAsteriskPrefix = comment.linesWithAsteriskPrefix?.has(markerPosition.start.line) ?? false;
+                // Special handling needed only for non-markdown, column-0 tasks WITHOUT asterisk prefix
+                const needsSpecialColumnZeroHandling = !isMarkdownDocument && 
+                    markerPosition.start.character === 0 && 
+                    !lineHadAsteriskPrefix;
+                
+                // Replace with checkbox character
                 const isChecked = checkState.toLowerCase() === 'x';
                 const checkbox = isChecked ? '☑' : '☐';
+                
+                const beforeRenderOptions: vscode.ThemableDecorationAttachmentRenderOptions = {
+                    contentText: `${checkbox} `,
+                    color: isChecked ? '#4CAF50' : '#808080'
+                };
+                
+                // For non-markdown documents with tasks at column 0 (no asterisk prefix), position correctly
+                if (needsSpecialColumnZeroHandling) {
+                    beforeRenderOptions.contentText = checkbox;  // No trailing space
+                    beforeRenderOptions.margin = '0 0 0 2ch';
+                }
+                
                 const decorationList = decorations.get('bold') || [];
+                const renderOpts: vscode.DecorationRenderOptions = {
+                    before: beforeRenderOptions
+                };
+                
+                // For column-0 tasks (no asterisk prefix), add after decoration to pull text left (reduce gap)
+                if (needsSpecialColumnZeroHandling) {
+                    renderOpts.after = {
+                        contentText: '',
+                        margin: '0 0 0 -2ch'  // Pull text left to reduce gap from hidden marker
+                    };
+                }
+                
                 decorationList.push({
                     range: new vscode.Range(markerPosition.start, markerPosition.start),
-                    renderOptions: {
-                        before: {
-                            contentText: `${checkbox} `,
-                            color: isChecked ? '#4CAF50' : '#808080',
-                            margin: '0 0 0 2ch'  // 2 character width left margin for indent
-                        }
-                    }
+                    renderOptions: renderOpts
                 });
                 decorations.set('bold', decorationList);
             }
@@ -1512,6 +1995,11 @@ export class MarkdownCommentProvider {
                     const textBeforeElement = lineText.substring(0, position.start.character).trim();
                     const isAtLineStart = textBeforeElement === '' || textBeforeElement === '*' || /^\*+$/.test(textBeforeElement);
                     
+                    // Check if this line had an asterisk prefix that was hidden
+                    // If so, the indent is already added by addLineIndentation, so don't add extra margin
+                    const lineHadAsteriskPrefix = comment.linesWithAsteriskPrefix?.has(position.start.line) ?? false;
+                    const needsLineStartMargin = isAtLineStart && applyLineStartIndent && !lineHadAsteriskPrefix;
+                    
                     // Add formatted content before the hidden text
                     const decorationOptions: vscode.DecorationOptions = {
                         range: new vscode.Range(position.start, position.start), // Zero-width range at start
@@ -1533,7 +2021,7 @@ export class MarkdownCommentProvider {
                                 backgroundColor: decorationType === 'code' ? 'var(--vscode-textCodeBlock-background)' : undefined,
                                 border: decorationType === 'code' ? '1px solid var(--vscode-textBlockQuote-border)' : undefined,
                                 margin: decorationType === 'code' ? '0px 2px' : 
-                                        (isAtLineStart && applyLineStartIndent) ? '0 0 0 1rem' : undefined,  // Add 1rem left margin if at line start for vertical bar spacing
+                                        needsLineStartMargin ? '0 0 0 1rem' : undefined,  // Add 1rem left margin if at line start for vertical bar spacing (but not if asterisk prefix was hidden)
 
                             }
                         },
@@ -1702,6 +2190,21 @@ export class MarkdownCommentProvider {
     }
 }
 
+/**
+ * Rendering context determines how markdown is processed and decorated.
+ * Different contexts require different handling for indentation, list markers, etc.
+ */
+enum RenderContext {
+    /** Markdown files (.md, .instructions) - direct markdown, no comment markers */
+    MARKDOWN_FILE = 'markdown_file',
+    /** Comment block WITH asterisk prefixes (e.g., " * " on each line) - JavaDoc style */
+    COMMENT_WITH_ASTERISK = 'comment_with_asterisk',
+    /** Comment block WITHOUT asterisk prefixes - plain block comment */
+    COMMENT_WITHOUT_ASTERISK = 'comment_without_asterisk',
+    /** Single-line comment - limited formatting only */
+    SINGLE_LINE_COMMENT = 'single_line_comment'
+}
+
 interface CommentBlock {
     text: string;
     startLine: number;
@@ -1710,6 +2213,10 @@ interface CommentBlock {
     endChar: number;
     originalLines?: string[];
     cleanedLines?: string[];
+    /** The rendering context for this comment block */
+    renderContext?: RenderContext;
+    /** Set of document line numbers that had their asterisk prefix (" * " or "* ") hidden */
+    linesWithAsteriskPrefix?: Set<number>;
 }
 
 interface CommentPatterns {

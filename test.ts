@@ -20,7 +20,7 @@ This is **bold** in a multi-line comment
 
 ### List Examples
 
-**Unordered Lists:**
+**Unordered Lists using - :**
 - First bullet item
 - Second bullet item with **bold**
 - Third item with *italic*
@@ -203,3 +203,23 @@ async function authenticateUser(username, password, options = {}) {
 
 // This is **bold** and *italic* with `code`
 const x = 5;  // Trailing comment with **formatting**
+
+/** 
+ * Comment block beginning with ` *` with increasing indent unordered list
+ * - First item
+ *  - Nested item
+ *   - Deeper nested item
+ *    - Even deeper item
+ *     - Deepest item
+ * 
+ */
+
+/*
+Comment block without leading asterisks and increasing indent unordered list
+- First item
+  - Nested item
+    - Deeper nested item
+      - Even deeper item
+        - Deepest item
+
+*/

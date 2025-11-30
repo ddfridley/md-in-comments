@@ -3,6 +3,13 @@
 import * as vscode from 'vscode';
 import { MarkdownCommentProvider } from './markdownCommentProvider';
 
+// Export the provider for testing
+let _markdownProvider: MarkdownCommentProvider | undefined;
+
+export function getMarkdownProvider(): MarkdownCommentProvider | undefined {
+	return _markdownProvider;
+}
+
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
@@ -12,7 +19,8 @@ export function activate(context: vscode.ExtensionContext) {
 	console.log('MD in Comments extension is now active!');
 
 	// Create the markdown comment provider
-	const markdownProvider = new MarkdownCommentProvider();
+	_markdownProvider = new MarkdownCommentProvider();
+	const markdownProvider = _markdownProvider;
 
 	// Register the decoration provider for all supported languages
 	const supportedLanguages = ['typescript', 'javascript', 'javascriptreact', 'typescriptreact', 'python', 'java', 'csharp', 'cpp', 'c', 'go', 'rust', 'php', 'markdown', 'instructions'];
