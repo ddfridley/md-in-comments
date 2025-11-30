@@ -2,7 +2,7 @@
   "name": "md-in-comments",
   "displayName": "MD in Comments",
   "description": "Renders markdown formatting within comment blocks in code files",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "license": "MIT",
   "engines": {
     "vscode": "^1.105.0"

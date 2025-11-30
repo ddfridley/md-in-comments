@@ -321,7 +321,11 @@ The extension automatically detects and renders the markdown formatting. Click o
 
 ## Release Notes
 
-### 0.0.6 (Current)
+### 0.0.7 (Current)
+
+- **Bug Fix**: Fixed double margin issue on lines with hidden asterisk prefixes (e.g., bold text like `**Performance Considerations:**` in JavaDoc-style comments was rendering 2 characters too far right)
+
+### 0.0.6
 
 - **Theme Support**: All colors now automatically adapt to your VS Code theme (light/dark/high contrast)
   - Headers use theme-appropriate colors (dark text for light themes, light text for dark themes)
