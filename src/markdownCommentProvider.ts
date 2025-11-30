@@ -515,7 +515,8 @@ export class MarkdownCommentProvider {
                     endLine: document.lineCount - 1,
                     startChar: 0,
                     endChar: document.lineAt(document.lineCount - 1).text.length,
-                    originalLines: text.split('\n')
+                    originalLines: text.split('\n'),
+                    renderContext: RenderContext.MARKDOWN_FILE
                 };
                 commentBlocks = [markdownBlock];
                 this.parseMarkdownFile(text, markdownBlock, allDecorations, document, -1); // Pass -1 to include all lines
@@ -620,7 +621,8 @@ export class MarkdownCommentProvider {
                 endLine: document.lineCount - 1,
                 startChar: 0,
                 endChar: document.lineAt(document.lineCount - 1).text.length,
-                originalLines: text.split('\n')
+                originalLines: text.split('\n'),
+                renderContext: RenderContext.MARKDOWN_FILE
             };
             this.parseMarkdownFile(text, markdownBlock, allDecorations, document, -1);
         } else {
@@ -766,21 +768,70 @@ export class MarkdownCommentProvider {
         }
     }
 
+    /**
+     * Detect the rendering context for a comment block.
+     * This determines how markdown processing and decoration will be handled.
+     */
+    private detectRenderContext(document: vscode.TextDocument, comment: CommentBlock): RenderContext {
+        // Check if this is a markdown file
+        if (document.languageId === 'markdown' || document.languageId === 'instructions') {
+            return RenderContext.MARKDOWN_FILE;
+        }
+        
+        // Check if this is a single-line comment
+        if (comment.startLine === comment.endLine) {
+            return RenderContext.SINGLE_LINE_COMMENT;
+        }
+        
+        // For multi-line comments, check if they use asterisk prefixes
+        // Look at the original lines (excluding first and last which are delimiters)
+        if (comment.originalLines && comment.originalLines.length > 2) {
+            // Check middle lines for asterisk prefix pattern
+            let hasAsteriskPrefix = false;
+            for (let i = 1; i < comment.originalLines.length - 1; i++) {
+                const line = comment.originalLines[i];
+                // Check for " * " or "* " or " *" at the start (JavaDoc style)
+                if (/^\s*\*(\s|$)/.test(line)) {
+                    hasAsteriskPrefix = true;
+                    break;
+                }
+            }
+            
+            if (hasAsteriskPrefix) {
+                return RenderContext.COMMENT_WITH_ASTERISK;
+            }
+        }
+        
+        // Default: comment without asterisk prefixes
+        return RenderContext.COMMENT_WITHOUT_ASTERISK;
+    }
+
     private parseMarkdownInComment(
         comment: CommentBlock, 
         decorations: Map<string, vscode.DecorationOptions[]>,
         document: vscode.TextDocument,
         activeLine: number
     ): void {
-        const text = comment.text;
-        const isSingleLine = comment.startLine === comment.endLine;
+        // Detect and store the rendering context
+        const context = this.detectRenderContext(document, comment);
+        comment.renderContext = context;
         
-        if (isSingleLine) {
-            // Single-line comments: limited features only (no headers, lists, code blocks, gray overlay)
-            this.parseSingleLineComment(text, comment, decorations, document, activeLine);
-        } else {
-            // Multi-line comments: full markdown support
-            this.parseMultiLineComment(text, comment, decorations, document, activeLine);
+        const text = comment.text;
+        
+        switch (context) {
+            case RenderContext.SINGLE_LINE_COMMENT:
+                this.parseSingleLineComment(text, comment, decorations, document, activeLine);
+                break;
+            case RenderContext.COMMENT_WITH_ASTERISK:
+            case RenderContext.COMMENT_WITHOUT_ASTERISK:
+                // Both multi-line comment types use the same handler for now
+                // Phase 3 will split these further for list handling
+                this.parseMultiLineComment(text, comment, decorations, document, activeLine);
+                break;
+            case RenderContext.MARKDOWN_FILE:
+                // This shouldn't be reached here - markdown files go through parseMarkdownFile
+                this.parseMarkdownFile(text, comment, decorations, document, activeLine);
+                break;
         }
     }
 
@@ -1007,6 +1058,11 @@ export class MarkdownCommentProvider {
         const replaceList = decorations.get('replace') || [];
         const indentList = decorations.get('indent') || [];
         
+        // Initialize the set to track lines with asterisk prefixes
+        if (!comment.linesWithAsteriskPrefix) {
+            comment.linesWithAsteriskPrefix = new Set<number>();
+        }
+        
         // Process each line in the comment block (skip first and last which are /* and */)
         for (let i = 1; i < comment.originalLines.length - 1; i++) {
             const line = comment.originalLines[i];
@@ -1031,6 +1087,9 @@ export class MarkdownCommentProvider {
                 replaceList.push({
                     range: new vscode.Range(startPos, endPos)
                 });
+                
+                // Track that this line had an asterisk prefix
+                comment.linesWithAsteriskPrefix.add(lineNumber);
                 
                 // Add 1ch indent at the position where content will start (after the hidden prefix)
                 indentList.push({
@@ -1058,6 +1117,9 @@ export class MarkdownCommentProvider {
                 replaceList.push({
                     range: new vscode.Range(startPos, endPos)
                 });
+                
+                // Track that this line had an asterisk prefix
+                comment.linesWithAsteriskPrefix.add(lineNumber);
                 
                 // No need to add indent here since addLineIndentation handles it globally
             }
@@ -1544,22 +1606,25 @@ export class MarkdownCommentProvider {
                 });
 
                 const isMarkdownDocument = document.languageId === 'markdown' || document.languageId === 'instructions';
-                // Check if bullet is at column 0 (no leading whitespace or asterisk prefix)
-                // In this case, we need to handle indentation specially since addLineIndentation
-                // will also add spacing, but we need consistent bullet-to-text spacing
-                const isAtColumnZero = markerPosition.start.character === 0;
+                // Check if this line had an asterisk prefix that was hidden
+                // If so, the text started after " * " and is already positioned correctly
+                const lineHadAsteriskPrefix = comment.linesWithAsteriskPrefix?.has(markerPosition.start.line) ?? false;
+                // Special handling needed only for non-markdown, column-0 bullets WITHOUT asterisk prefix
+                const needsSpecialColumnZeroHandling = !isMarkdownDocument && 
+                    markerPosition.start.character === 0 && 
+                    !lineHadAsteriskPrefix;
                 
                 const beforeRenderOptions: vscode.ThemableDecorationAttachmentRenderOptions = {
                     contentText: '• ',
                     color: '#808080'
                 };
                 
-                // For non-markdown documents with bullets at column 0, the hidden "- " marker
-                // still takes up some space. We need to:
+                // For non-markdown documents with bullets at column 0 (no asterisk prefix),
+                // the hidden "- " marker still takes up some space. We need to:
                 // 1. Use margin to position the bullet correctly under text above
                 // 2. Remove trailing space from bullet since hidden marker provides spacing
                 // 3. Use after decoration with negative margin to pull text closer to bullet
-                if (!isMarkdownDocument && isAtColumnZero) {
+                if (needsSpecialColumnZeroHandling) {
                     beforeRenderOptions.contentText = '•';  // No trailing space
                     beforeRenderOptions.margin = '0 0 0 2ch';
                 }
@@ -1569,8 +1634,8 @@ export class MarkdownCommentProvider {
                     before: beforeRenderOptions
                 };
                 
-                // For column-0 bullets, add after decoration to pull text left (reduce gap)
-                if (!isMarkdownDocument && isAtColumnZero) {
+                // For column-0 bullets (no asterisk prefix), add after decoration to pull text left (reduce gap)
+                if (needsSpecialColumnZeroHandling) {
                     renderOpts.after = {
                         contentText: '',
                         margin: '0 0 0 -2ch'  // Pull text left to reduce gap from hidden marker
@@ -1618,7 +1683,12 @@ export class MarkdownCommentProvider {
                 });
                 
                 const isMarkdownDocument = document.languageId === 'markdown' || document.languageId === 'instructions';
-                const isAtColumnZero = markerPosition.start.character === 0;
+                // Check if this line had an asterisk prefix that was hidden
+                const lineHadAsteriskPrefix = comment.linesWithAsteriskPrefix?.has(markerPosition.start.line) ?? false;
+                // Special handling needed only for non-markdown, column-0 numbers WITHOUT asterisk prefix
+                const needsSpecialColumnZeroHandling = !isMarkdownDocument && 
+                    markerPosition.start.character === 0 && 
+                    !lineHadAsteriskPrefix;
                 
                 const beforeRenderOptions: vscode.ThemableDecorationAttachmentRenderOptions = {
                     contentText: `${number}. `,
@@ -1626,8 +1696,8 @@ export class MarkdownCommentProvider {
                     fontWeight: 'bold'
                 };
                 
-                // For non-markdown documents with numbers at column 0, position correctly
-                if (!isMarkdownDocument && isAtColumnZero) {
+                // For non-markdown documents with numbers at column 0 (no asterisk prefix), position correctly
+                if (needsSpecialColumnZeroHandling) {
                     beforeRenderOptions.contentText = `${number}.`;  // No trailing space
                     beforeRenderOptions.margin = '0 0 0 2ch';
                 }
@@ -1637,8 +1707,8 @@ export class MarkdownCommentProvider {
                     before: beforeRenderOptions
                 };
                 
-                // For column-0 numbers, add after decoration to pull text left (reduce gap)
-                if (!isMarkdownDocument && isAtColumnZero) {
+                // For column-0 numbers (no asterisk prefix), add after decoration to pull text left (reduce gap)
+                if (needsSpecialColumnZeroHandling) {
                     renderOpts.after = {
                         contentText: '',
                         margin: '0 0 0 -2ch'  // Pull text left to reduce gap from hidden marker
@@ -1826,7 +1896,12 @@ export class MarkdownCommentProvider {
                 });
                 
                 const isMarkdownDocument = document.languageId === 'markdown' || document.languageId === 'instructions';
-                const isAtColumnZero = markerPosition.start.character === 0;
+                // Check if this line had an asterisk prefix that was hidden
+                const lineHadAsteriskPrefix = comment.linesWithAsteriskPrefix?.has(markerPosition.start.line) ?? false;
+                // Special handling needed only for non-markdown, column-0 tasks WITHOUT asterisk prefix
+                const needsSpecialColumnZeroHandling = !isMarkdownDocument && 
+                    markerPosition.start.character === 0 && 
+                    !lineHadAsteriskPrefix;
                 
                 // Replace with checkbox character
                 const isChecked = checkState.toLowerCase() === 'x';
@@ -1837,8 +1912,8 @@ export class MarkdownCommentProvider {
                     color: isChecked ? '#4CAF50' : '#808080'
                 };
                 
-                // For non-markdown documents with tasks at column 0, position correctly
-                if (!isMarkdownDocument && isAtColumnZero) {
+                // For non-markdown documents with tasks at column 0 (no asterisk prefix), position correctly
+                if (needsSpecialColumnZeroHandling) {
                     beforeRenderOptions.contentText = checkbox;  // No trailing space
                     beforeRenderOptions.margin = '0 0 0 2ch';
                 }
@@ -1848,8 +1923,8 @@ export class MarkdownCommentProvider {
                     before: beforeRenderOptions
                 };
                 
-                // For column-0 tasks, add after decoration to pull text left (reduce gap)
-                if (!isMarkdownDocument && isAtColumnZero) {
+                // For column-0 tasks (no asterisk prefix), add after decoration to pull text left (reduce gap)
+                if (needsSpecialColumnZeroHandling) {
                     renderOpts.after = {
                         contentText: '',
                         margin: '0 0 0 -2ch'  // Pull text left to reduce gap from hidden marker
@@ -1920,6 +1995,11 @@ export class MarkdownCommentProvider {
                     const textBeforeElement = lineText.substring(0, position.start.character).trim();
                     const isAtLineStart = textBeforeElement === '' || textBeforeElement === '*' || /^\*+$/.test(textBeforeElement);
                     
+                    // Check if this line had an asterisk prefix that was hidden
+                    // If so, the indent is already added by addLineIndentation, so don't add extra margin
+                    const lineHadAsteriskPrefix = comment.linesWithAsteriskPrefix?.has(position.start.line) ?? false;
+                    const needsLineStartMargin = isAtLineStart && applyLineStartIndent && !lineHadAsteriskPrefix;
+                    
                     // Add formatted content before the hidden text
                     const decorationOptions: vscode.DecorationOptions = {
                         range: new vscode.Range(position.start, position.start), // Zero-width range at start
@@ -1941,7 +2021,7 @@ export class MarkdownCommentProvider {
                                 backgroundColor: decorationType === 'code' ? 'var(--vscode-textCodeBlock-background)' : undefined,
                                 border: decorationType === 'code' ? '1px solid var(--vscode-textBlockQuote-border)' : undefined,
                                 margin: decorationType === 'code' ? '0px 2px' : 
-                                        (isAtLineStart && applyLineStartIndent) ? '0 0 0 1rem' : undefined,  // Add 1rem left margin if at line start for vertical bar spacing
+                                        needsLineStartMargin ? '0 0 0 1rem' : undefined,  // Add 1rem left margin if at line start for vertical bar spacing (but not if asterisk prefix was hidden)
 
                             }
                         },
@@ -2110,6 +2190,21 @@ export class MarkdownCommentProvider {
     }
 }
 
+/**
+ * Rendering context determines how markdown is processed and decorated.
+ * Different contexts require different handling for indentation, list markers, etc.
+ */
+enum RenderContext {
+    /** Markdown files (.md, .instructions) - direct markdown, no comment markers */
+    MARKDOWN_FILE = 'markdown_file',
+    /** Comment block WITH asterisk prefixes (e.g., " * " on each line) - JavaDoc style */
+    COMMENT_WITH_ASTERISK = 'comment_with_asterisk',
+    /** Comment block WITHOUT asterisk prefixes - plain block comment */
+    COMMENT_WITHOUT_ASTERISK = 'comment_without_asterisk',
+    /** Single-line comment - limited formatting only */
+    SINGLE_LINE_COMMENT = 'single_line_comment'
+}
+
 interface CommentBlock {
     text: string;
     startLine: number;
@@ -2118,6 +2213,10 @@ interface CommentBlock {
     endChar: number;
     originalLines?: string[];
     cleanedLines?: string[];
+    /** The rendering context for this comment block */
+    renderContext?: RenderContext;
+    /** Set of document line numbers that had their asterisk prefix (" * " or "* ") hidden */
+    linesWithAsteriskPrefix?: Set<number>;
 }
 
 interface CommentPatterns {
