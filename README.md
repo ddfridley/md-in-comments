@@ -256,7 +256,7 @@ async function authenticateUser(username, password, options = {}) {
 }
 ```
 ### Which looks like this in VSCode:
-![[VSCode editor view using MD in Comments](image-1.png)
+![VSCode editor view using MD in Comments](image-1.png)
 
 ### Single-Line Comments
 Use limited markdown formatting in single-line comments:
